@@ -1,0 +1,48 @@
+﻿no,partId,name,type,itemId,itemName,bogie,side,centerX,centerY,centerZ,approachMax,facing,viewDist,viewPitch,crouch,colliderId,colliderKind,distToCollider,mapOk
+1,rg-rear-left-frame,转向架构架（侧梁/横梁/焊缝）,frame,bogie-4,二系悬挂弹簧,II端转向架,左侧,-1.78,+1.15,-7.04,3.0,0.50,2.1,-0.05,可蹲,转向架构架（II端）,bogieFrame,0.00,1
+2,rg-rear-left-wheelset,轮对与车轮踏面、轮缘,wheelset,bogie-1,轮对踏面与轮缘,II端转向架,左侧,-1.78,+0.76,-6.53,2.7,0.55,1.9,-0.22,可蹲,车轮 rear-a2L,wheel,0.00,1
+3,rg-rear-left-axlebox,轴箱与轴承端盖,axlebox,bogie-2,轴箱与一系弹簧,II端转向架,左侧,-1.78,+0.86,-6.70,2.7,0.55,1.9,-0.12,可蹲,轴箱 rear-a2L,axlebox,0.00,1
+4,rg-rear-left-primarySpring,一系悬挂（轴箱弹簧与橡胶垫）,primarySpring,bogie-2,轴箱与一系弹簧,II端转向架,左侧,-1.78,+1.24,-6.72,2.8,0.50,2.0,-0.02,可蹲,转向架构架（II端）,bogieFrame,0.00,1
+5,rg-rear-left-damper,油压减振器（垂向/横向）,damper,bogie-3,油压减震器与横向拉杆,II端转向架,左侧,-0.73,+1.18,-6.94,2.9,0.50,2.1,-0.02,可蹲,转向架构架（II端）,bogieFrame,0.00,1
+6,rg-rear-left-tractionRod,牵引拉杆与横向拉杆,tractionRod,bogie-3,油压减震器与横向拉杆,II端转向架,左侧,-2.33,+0.95,-6.51,3.1,0.50,2.3,-0.18,可蹲,转向架构架（II端）,bogieFrame,0.00,1
+7,rg-rear-left-secondarySpring,二系悬挂弹簧与支座,secondarySpring,bogie-4,二系悬挂弹簧,II端转向架,左侧,-1.78,+1.48,-6.82,3.0,0.50,2.2,0.04,站立,转向架构架（II端）,bogieFrame,0.06,1
+8,rg-rear-left-motorGearbox,牵引电机与齿轮箱（外露连接部位）,motorGearbox,bogie-5,牵引电机与齿轮箱,II端转向架,左侧,-1.78,+0.82,-6.10,3.4,0.45,2.6,-0.16,可蹲,车轴 rear-a2,axle,0.00,1
+9,rg-rear-left-brakeUnit,基础制动装置（制动夹钳/闸片/制动缸）,brakeUnit,bogie-6,基础制动装置与自动夹钳,II端转向架,左侧,-1.48,+1.02,-6.48,2.8,0.55,2.0,-0.14,可蹲,转向架构架（II端）,bogieFrame,0.00,1
+10,rg-rear-left-pipeFastener,管路、紧固件与防松状态,pipeFastener,bogie-6,基础制动装置与自动夹钳,II端转向架,左侧,-1.78,+1.30,-6.99,3.0,0.50,2.2,0.00,可蹲,转向架构架（II端）,bogieFrame,0.00,1
+11,rg-rear-left-sandBox,撒砂装置与侧面砂箱,sandBox,bogie-7,撒砂装置与侧面沙箱,II端转向架,左侧,-0.50,+1.52,-7.17,3.1,0.50,2.3,0.06,站立,转向架构架（II端）,bogieFrame,0.10,1
+12,rg-rear-right-frame,转向架构架（侧梁/横梁/焊缝）,frame,bogie-4,二系悬挂弹簧,II端转向架,右侧,-1.78,+1.15,-4.44,3.0,0.50,2.1,-0.05,可蹲,转向架构架（II端）,bogieFrame,0.00,1
+13,rg-rear-right-wheelset,轮对与车轮踏面、轮缘,wheelset,bogie-1,轮对踏面与轮缘,II端转向架,右侧,-1.78,+0.76,-4.95,2.7,0.55,1.9,-0.22,可蹲,车轮 rear-a2R,wheel,0.00,1
+14,rg-rear-right-axlebox,轴箱与轴承端盖,axlebox,bogie-2,轴箱与一系弹簧,II端转向架,右侧,-1.78,+0.86,-4.78,2.7,0.55,1.9,-0.12,可蹲,轴箱 rear-a2R,axlebox,0.00,1
+15,rg-rear-right-primarySpring,一系悬挂（轴箱弹簧与橡胶垫）,primarySpring,bogie-2,轴箱与一系弹簧,II端转向架,右侧,-1.78,+1.24,-4.76,2.8,0.50,2.0,-0.02,可蹲,转向架构架（II端）,bogieFrame,0.00,1
+16,rg-rear-right-damper,油压减振器（垂向/横向）,damper,bogie-3,油压减震器与横向拉杆,II端转向架,右侧,-0.73,+1.18,-4.54,2.9,0.50,2.1,-0.02,可蹲,转向架构架（II端）,bogieFrame,0.00,1
+17,rg-rear-right-tractionRod,牵引拉杆与横向拉杆,tractionRod,bogie-3,油压减震器与横向拉杆,II端转向架,右侧,-2.33,+0.95,-4.97,3.1,0.50,2.3,-0.18,可蹲,转向架构架（II端）,bogieFrame,0.00,1
+18,rg-rear-right-secondarySpring,二系悬挂弹簧与支座,secondarySpring,bogie-4,二系悬挂弹簧,II端转向架,右侧,-1.78,+1.48,-4.66,3.0,0.50,2.2,0.04,站立,转向架构架（II端）,bogieFrame,0.06,1
+19,rg-rear-right-motorGearbox,牵引电机与齿轮箱（外露连接部位）,motorGearbox,bogie-5,牵引电机与齿轮箱,II端转向架,右侧,-1.78,+0.82,-5.38,3.4,0.45,2.6,-0.16,可蹲,车轴 rear-a2,axle,0.00,1
+20,rg-rear-right-brakeUnit,基础制动装置（制动夹钳/闸片/制动缸）,brakeUnit,bogie-6,基础制动装置与自动夹钳,II端转向架,右侧,-1.48,+1.02,-5.00,2.8,0.55,2.0,-0.14,可蹲,转向架构架（II端）,bogieFrame,0.00,1
+21,rg-rear-right-pipeFastener,管路、紧固件与防松状态,pipeFastener,bogie-6,基础制动装置与自动夹钳,II端转向架,右侧,-1.78,+1.30,-4.49,3.0,0.50,2.2,0.00,可蹲,转向架构架（II端）,bogieFrame,0.00,1
+22,rg-rear-right-sandBox,撒砂装置与侧面砂箱,sandBox,bogie-7,撒砂装置与侧面沙箱,II端转向架,右侧,-0.50,+1.52,-4.31,3.1,0.50,2.3,0.06,站立,转向架构架（II端）,bogieFrame,0.10,1
+23,rg-front-left-frame,转向架构架（侧梁/横梁/焊缝）,frame,bogie-4,二系悬挂弹簧,I端转向架,左侧,+10.35,+1.15,-7.04,3.0,0.50,2.1,-0.05,可蹲,转向架构架（I端）,bogieFrame,0.00,1
+24,rg-front-left-wheelset,轮对与车轮踏面、轮缘,wheelset,bogie-1,轮对踏面与轮缘,I端转向架,左侧,+10.35,+0.76,-6.53,2.7,0.55,1.9,-0.22,可蹲,车轮 front-a2L,wheel,0.00,1
+25,rg-front-left-axlebox,轴箱与轴承端盖,axlebox,bogie-2,轴箱与一系弹簧,I端转向架,左侧,+10.35,+0.86,-6.70,2.7,0.55,1.9,-0.12,可蹲,轴箱 front-a2L,axlebox,0.00,1
+26,rg-front-left-primarySpring,一系悬挂（轴箱弹簧与橡胶垫）,primarySpring,bogie-2,轴箱与一系弹簧,I端转向架,左侧,+10.35,+1.24,-6.72,2.8,0.50,2.0,-0.02,可蹲,转向架构架（I端）,bogieFrame,0.00,1
+27,rg-front-left-damper,油压减振器（垂向/横向）,damper,bogie-3,油压减震器与横向拉杆,I端转向架,左侧,+11.40,+1.18,-6.94,2.9,0.50,2.1,-0.02,可蹲,转向架构架（I端）,bogieFrame,0.00,1
+28,rg-front-left-tractionRod,牵引拉杆与横向拉杆,tractionRod,bogie-3,油压减震器与横向拉杆,I端转向架,左侧,+9.80,+0.95,-6.51,3.1,0.50,2.3,-0.18,可蹲,转向架构架（I端）,bogieFrame,0.00,1
+29,rg-front-left-secondarySpring,二系悬挂弹簧与支座,secondarySpring,bogie-4,二系悬挂弹簧,I端转向架,左侧,+10.35,+1.48,-6.82,3.0,0.50,2.2,0.04,站立,转向架构架（I端）,bogieFrame,0.06,1
+30,rg-front-left-motorGearbox,牵引电机与齿轮箱（外露连接部位）,motorGearbox,bogie-5,牵引电机与齿轮箱,I端转向架,左侧,+10.35,+0.82,-6.10,3.4,0.45,2.6,-0.16,可蹲,车轴 front-a2,axle,0.00,1
+31,rg-front-left-brakeUnit,基础制动装置（制动夹钳/闸片/制动缸）,brakeUnit,bogie-6,基础制动装置与自动夹钳,I端转向架,左侧,+10.65,+1.02,-6.48,2.8,0.55,2.0,-0.14,可蹲,转向架构架（I端）,bogieFrame,0.00,1
+32,rg-front-left-pipeFastener,管路、紧固件与防松状态,pipeFastener,bogie-6,基础制动装置与自动夹钳,I端转向架,左侧,+10.35,+1.30,-6.99,3.0,0.50,2.2,0.00,可蹲,转向架构架（I端）,bogieFrame,0.00,1
+33,rg-front-left-sandBox,撒砂装置与侧面砂箱,sandBox,bogie-7,撒砂装置与侧面沙箱,I端转向架,左侧,+11.63,+1.52,-7.17,3.1,0.50,2.3,0.06,站立,转向架构架（I端）,bogieFrame,0.10,1
+34,rg-front-right-frame,转向架构架（侧梁/横梁/焊缝）,frame,bogie-4,二系悬挂弹簧,I端转向架,右侧,+10.35,+1.15,-4.44,3.0,0.50,2.1,-0.05,可蹲,转向架构架（I端）,bogieFrame,0.00,1
+35,rg-front-right-wheelset,轮对与车轮踏面、轮缘,wheelset,bogie-1,轮对踏面与轮缘,I端转向架,右侧,+10.35,+0.76,-4.95,2.7,0.55,1.9,-0.22,可蹲,车轮 front-a2R,wheel,0.00,1
+36,rg-front-right-axlebox,轴箱与轴承端盖,axlebox,bogie-2,轴箱与一系弹簧,I端转向架,右侧,+10.35,+0.86,-4.78,2.7,0.55,1.9,-0.12,可蹲,轴箱 front-a2R,axlebox,0.00,1
+37,rg-front-right-primarySpring,一系悬挂（轴箱弹簧与橡胶垫）,primarySpring,bogie-2,轴箱与一系弹簧,I端转向架,右侧,+10.35,+1.24,-4.76,2.8,0.50,2.0,-0.02,可蹲,转向架构架（I端）,bogieFrame,0.00,1
+38,rg-front-right-damper,油压减振器（垂向/横向）,damper,bogie-3,油压减震器与横向拉杆,I端转向架,右侧,+11.40,+1.18,-4.54,2.9,0.50,2.1,-0.02,可蹲,转向架构架（I端）,bogieFrame,0.00,1
+39,rg-front-right-tractionRod,牵引拉杆与横向拉杆,tractionRod,bogie-3,油压减震器与横向拉杆,I端转向架,右侧,+9.80,+0.95,-4.97,3.1,0.50,2.3,-0.18,可蹲,转向架构架（I端）,bogieFrame,0.00,1
+40,rg-front-right-secondarySpring,二系悬挂弹簧与支座,secondarySpring,bogie-4,二系悬挂弹簧,I端转向架,右侧,+10.35,+1.48,-4.66,3.0,0.50,2.2,0.04,站立,转向架构架（I端）,bogieFrame,0.06,1
+41,rg-front-right-motorGearbox,牵引电机与齿轮箱（外露连接部位）,motorGearbox,bogie-5,牵引电机与齿轮箱,I端转向架,右侧,+10.35,+0.82,-5.38,3.4,0.45,2.6,-0.16,可蹲,车轴 front-a2,axle,0.00,1
+42,rg-front-right-brakeUnit,基础制动装置（制动夹钳/闸片/制动缸）,brakeUnit,bogie-6,基础制动装置与自动夹钳,I端转向架,右侧,+10.65,+1.02,-5.00,2.8,0.55,2.0,-0.14,可蹲,转向架构架（I端）,bogieFrame,0.00,1
+43,rg-front-right-pipeFastener,管路、紧固件与防松状态,pipeFastener,bogie-6,基础制动装置与自动夹钳,I端转向架,右侧,+10.35,+1.30,-4.49,3.0,0.50,2.2,0.00,可蹲,转向架构架（I端）,bogieFrame,0.00,1
+44,rg-front-right-sandBox,撒砂装置与侧面砂箱,sandBox,bogie-7,撒砂装置与侧面沙箱,I端转向架,右侧,+11.63,+1.52,-4.31,3.1,0.50,2.3,0.06,站立,转向架构架（I端）,bogieFrame,0.10,1
+45,rg-end-ii-pilot,排障器与脚踏端部,pilot,bogie-8,排障器与脚踏端部,II端端部,端部,-6.63,+0.42,-5.74,3.0,0.50,2.2,-0.10,可蹲,排障器（II端）,pilot,0.00,1
+46,rg-end-i-pilot,排障器与脚踏端部,pilot,bogie-8,排障器与脚踏端部,I端端部,端部,+15.13,+0.42,-5.74,3.0,0.50,2.2,-0.10,可蹲,排障器（I端）,pilot,0.00,1
+47,rg-undercar-pipeline,车下管路与底架紧固件（车下通道检查）,undercar,bogie-6,基础制动装置与自动夹钳,车体中部车下,车下,+4.25,+1.30,-5.74,2.8,0.35,2.0,0.34,需蹲,车体（底架以上）,carbody,0.39,1

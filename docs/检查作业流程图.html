@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <title>机车检查作业流程图 · HXD3D型电力机车</title>
+  <style>
+    :root {
+      font-family: "Microsoft YaHei UI", "Microsoft YaHei", "Noto Sans SC", sans-serif;
+      --bg: #06111d; --panel: rgba(5, 23, 42, .86); --line: rgba(63, 158, 225, .34);
+      --cyan: #38a8ff; --cyan-soft: #7cc8ff; --muted: #7e9cbb; --text: #dcecff;
+      --warn: #ffb340; --ok: #37d69b;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; padding: 24px 28px;
+      background: radial-gradient(circle at 30% 0%, rgba(20, 70, 120, .32), var(--bg) 70%);
+      color: var(--text); min-height: 100vh;
+    }
+    h1 { margin: 0 0 4px; font-size: 22px; letter-spacing: .12em; }
+    h1 b { color: var(--cyan); }
+    .sub { color: var(--muted); font-size: 11px; letter-spacing: .14em; margin-bottom: 22px; }
+
+    .legend {
+      display: flex; gap: 16px; margin-bottom: 22px; font-size: 11px; color: var(--muted);
+    }
+    .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 5px; vertical-align: middle; }
+
+    .flow {
+      display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px;
+    }
+    .step {
+      position: relative;
+      padding: 14px 14px 12px; border: 1px solid rgba(56, 168, 255, .36); border-radius: 8px;
+      background: linear-gradient(180deg, rgba(10, 42, 75, .7), rgba(4, 18, 33, .85));
+      box-shadow: 0 8px 22px rgba(0, 7, 17, .35);
+    }
+    .step::after {
+      content: "▶"; position: absolute; right: -16px; top: 50%; transform: translateY(-50%);
+      color: var(--cyan); font-size: 16px; opacity: .65;
+    }
+    .step.no-tail::after { content: ""; }
+    .step h3 { margin: 0 0 6px; font-size: 14px; color: var(--cyan-soft); display: flex; align-items: center; gap: 8px; }
+    .step h3 b {
+      display: inline-grid; place-items: center; width: 26px; height: 26px;
+      border: 1px solid var(--cyan); border-radius: 4px; color: #dbeeff;
+      font-size: 12px; font-weight: 700;
+    }
+    .step .zone { font-size: 10px; letter-spacing: .1em; color: var(--muted); margin-bottom: 8px; }
+    .step p { margin: 0 0 8px; font-size: 11.5px; line-height: 1.65; color: #b6cfe4; }
+    .step ul { margin: 0; padding-left: 16px; font-size: 11px; line-height: 1.6; color: #a8c4dc; }
+    .step ul li { padding-left: 2px; }
+    .step .meta {
+      display: flex; flex-wrap: wrap; gap: 6px; margin-top: 9px; padding-top: 8px;
+      border-top: 1px dashed rgba(54, 126, 184, .26);
+    }
+    .step .meta em {
+      font-style: normal; font-size: 9.5px; padding: 2px 7px;
+      border-radius: 9px; background: rgba(15, 53, 88, .5); color: #8fc4ee;
+      letter-spacing: .04em;
+    }
+    .step .meta em.level-A { color: #ffd2a8; background: rgba(122, 66, 20, .55); }
+    .step .meta em.warn { color: #ffcf85; background: rgba(88, 58, 16, .5); }
+
+    .row-2 { grid-column: span 2; }
+    .row-4 { grid-column: span 4; }
+
+    .branch {
+      display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px;
+      margin: 18px 0 24px; padding: 14px; border: 1px solid rgba(56, 168, 255, .24); border-radius: 8px;
+      background: rgba(7, 28, 50, .55);
+    }
+    .branch > h2 { margin: 0; grid-column: 1 / -1; font-size: 12px; letter-spacing: .14em; color: var(--cyan-soft); }
+
+    .arrow-back {
+      grid-column: span 4; text-align: center; padding: 14px;
+      color: var(--muted); font-size: 11px; letter-spacing: .14em;
+      border: 1px dashed rgba(56, 168, 255, .34); border-radius: 6px;
+      background: rgba(7, 28, 50, .35);
+    }
+    .arrow-back b { color: var(--warn); }
+  </style>
+</head>
+<body>
+  <h1><b>HXD3D</b> 型电力机车 · 整备检查作业流程图</h1>
+  <div class="sub">按"检查部位"组织 · 教学演示用 · 实际作业以现场规程为准</div>
+
+  <div class="legend">
+    <span><i style="background:#38a8ff"></i>主流程步骤</span>
+    <span><i style="background:#ffb340"></i>含关键/高风险项</span>
+    <span><i style="background:#37d69b"></i>合格判据</span>
+    <span><i style="background:#7e9cbb"></i>辅助步骤</span>
+  </div>
+
+  <div class="flow">
+    <!-- 准备阶段 -->
+    <div class="step row-4">
+      <h3><b>0</b>作业准备（前置）</h3>
+      <div class="zone">车外 · 通用</div>
+      <p>检查人员到岗、防护用品穿戴齐全；确认机车已停电、防溜措施到位；与列检、整备场协调一致。</p>
+      <ul>
+        <li>确认作业分工、准备记录本或手持终端</li>
+        <li>检查工具、检测仪器校验有效</li>
+        <li>确认防护信号、禁动牌、接地线状态</li>
+      </ul>
+      <div class="meta"><em>通用项</em></div>
+    </div>
+
+    <!-- 1 -->
+    <div class="step">
+      <h3><b>1</b>车顶高压设备</h3>
+      <div class="zone">车顶 · 受电弓/主断/避雷器</div>
+      <p>接触网停电、验电、接地后方可登顶。</p>
+      <ul>
+        <li>受电弓滑板 / 弓头 / 框架</li>
+        <li>车顶绝缘子 / 支持瓷瓶</li>
+        <li>主断路器 / 避雷器 / 隔离开关</li>
+        <li>车顶母线紧固、无遗留物</li>
+      </ul>
+      <div class="meta"><em>5 项</em><em class="level-A">全为关键项</em><em class="warn">雷雨禁止</em></div>
+    </div>
+
+    <!-- 2 -->
+    <div class="step">
+      <h3><b>2</b>司机室</h3>
+      <div class="zone">车内 · 操纵区</div>
+      <p>操纵、监控、制动、通信、消防与安全装备齐全完好。</p>
+      <ul>
+        <li>司控器 / 制动控制器 / 压力表</li>
+        <li>LKJ 监控与机车信号</li>
+        <li>CIR 电台 / 列尾装置</li>
+        <li>仪表 / 开关 / 指示灯</li>
+        <li>灭火器 / 紧急阀 / 门窗刮雨器</li>
+      </ul>
+      <div class="meta"><em>7 项</em><em class="level-A">含 5 项关键</em></div>
+    </div>
+
+    <!-- 3 -->
+    <div class="step">
+      <h3><b>3</b>机械间 / 设备舱</h3>
+      <div class="zone">车内 · 变流/通风/制动柜</div>
+      <p>断电后检查变流柜、牵引通风、空压机、制动柜与控制电源。</p>
+      <ul>
+        <li>主变流器 / 牵引电机</li>
+        <li>通风机 / 冷却 / 滤尘</li>
+        <li>空压机 / 干燥器 / 排污</li>
+        <li>制动柜 / 管路 / 控制电源</li>
+        <li>防火与整洁 / 报警装置</li>
+      </ul>
+      <div class="meta"><em>6 项</em><em class="level-A">含 3 项关键</em></div>
+    </div>
+
+    <!-- 4 -->
+    <div class="step">
+      <h3><b>4</b>走行部</h3>
+      <div class="zone">车下 · 转向架 / 轮对</div>
+      <p>轮对、轴箱、悬挂、牵引电机、基础制动与撒砂排障。</p>
+      <ul>
+        <li>踏面 / 轮缘 / 锤击</li>
+        <li>轴箱 / 轴温</li>
+        <li>一系 / 二系悬挂 / 减振器</li>
+        <li>牵引电机 / 齿轮箱</li>
+        <li>基础制动 / 闸片</li>
+        <li>撒砂 / 排障器</li>
+      </ul>
+      <div class="meta"><em>6 项</em><em class="level-A">含 5 项关键</em><em class="warn">严禁踩踏闸片</em></div>
+    </div>
+
+    <!-- 5 -->
+    <div class="step no-tail">
+      <h3><b>5</b>制动系统</h3>
+      <div class="zone">车下 / 车内 · 风源与管路</div>
+      <p>总风、安全阀、管路漏泄与制动缓解，停放制动功能可靠。</p>
+      <ul>
+        <li>总风缸 / 安全阀 / 排水</li>
+        <li>管路漏泄</li>
+        <li>制动缓解作用</li>
+        <li>停放制动</li>
+        <li>紧急制动 / 撒砂联锁</li>
+      </ul>
+      <div class="meta"><em>5 项</em><em class="level-A">全为关键项</em></div>
+    </div>
+
+    <div class="arrow-back row-4">
+      ▲ 步骤 5 须在 步骤 4 走行部检查完成且确认车下无人、车下作业解除后进行
+    </div>
+
+    <!-- 6 -->
+    <div class="step">
+      <h3><b>6</b>车钩缓冲装置</h3>
+      <div class="zone">端部 · 车钩 / 缓冲器 / 风管</div>
+      <p>钩体、钩舌、钩锁销、缓冲器、风管与电气连接。</p>
+      <ul>
+        <li>钩体 / 钩舌（裂纹锤击）</li>
+        <li>钩锁销 / 提钩装置</li>
+        <li>缓冲器 / 从板</li>
+        <li>车钩高度（测量）</li>
+        <li>风管 / 塞门 / 电气连接</li>
+      </ul>
+      <div class="meta"><em>5 项</em><em class="level-A">含 3 项关键</em></div>
+    </div>
+
+    <!-- 7 -->
+    <div class="step">
+      <h3><b>7</b>端部与信号</h3>
+      <div class="zone">端部 · 前照灯 / 标志灯 / 附属</div>
+      <p>灯具、刮雨器、扶手脚踏、车号、自动过分相。</p>
+      <ul>
+        <li>前照灯 / 标志灯</li>
+        <li>鸣笛 / 刮雨器</li>
+        <li>端部结构与扶手</li>
+        <li>自动过分相感应器</li>
+      </ul>
+      <div class="meta"><em>4 项</em><em class="level-A">含 1 项关键</em></div>
+    </div>
+
+    <!-- 8 -->
+    <div class="step no-tail">
+      <h3><b>8</b>制动机性能试验</h3>
+      <div class="zone">司机室 · 全列制动</div>
+      <p>漏泄试验、常用制动与缓解、紧急制动、备用制动并签认。</p>
+      <ul>
+        <li>充风 / 漏泄</li>
+        <li>常用制动与缓解</li>
+        <li>紧急制动（联锁切断牵引、撒砂）</li>
+        <li>备用制动 / 记录签认</li>
+      </ul>
+      <div class="meta"><em>4 项</em><em class="level-A">含 3 项关键</em></div>
+    </div>
+
+    <!-- 收尾 -->
+    <div class="step row-4">
+      <h3><b>9</b>结果汇总与交车</h3>
+      <div class="zone">车外 · 司机室</div>
+      <p>系统生成检查报告，核对异常处置，填写签认；与调度、列检办理交接。</p>
+      <ul>
+        <li>汇总合格项 / 异常项 / 未检项</li>
+        <li>导出或打印检查记录</li>
+        <li>异常处置已闭环或明确监护要求</li>
+        <li>工具回收、清扫现场、撤除防护信号</li>
+      </ul>
+      <div class="meta"><em>通用项</em></div>
+    </div>
+  </div>
+</body>
+</html>

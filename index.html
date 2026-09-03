@@ -1,0 +1,277 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover, interactive-widget=resizes-content" />
+  <title>机车检查作业系统 · HXD3D型电力机车</title>
+  <link rel="stylesheet" href="styles/inspection.css" />
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "./lib/three/three.module.js",
+      "three/addons/": "./lib/three/addons/"
+    }
+  }
+  </script>
+</head>
+<body>
+  <div class="app-shell" id="app">
+    <!-- 三维视口 -->
+    <div class="scene-viewport">
+      <div class="three-host" id="three-host"></div>
+      <div class="viewport-vignette"></div>
+      <div class="hotspot-label" id="hotspot-label" style="display:none"></div>
+    </div>
+
+    <!-- 视角快捷条 -->
+    <div class="view-dock" id="view-dock">
+      <button data-view="overview" class="active">整车</button>
+      <button data-view="front">端部</button>
+      <button data-view="left">左侧</button>
+      <button data-view="right">右侧</button>
+      <button data-view="top">顶部</button>
+      <button data-view="bottom">底部</button>
+    </div>
+
+    <div class="focus-hint" id="focus-hint" style="display:none"></div>
+
+    <!-- 顶部系统栏 -->
+    <header class="system-topbar">
+      <div class="system-title-plate">
+        <strong>机车检查作业系统</strong>
+        <span id="title-sub">LOCOMOTIVE INSPECTION OPERATION · V1.0</span>
+      </div>
+
+      <div class="system-context">
+        <span class="locomotive-chip"><i></i>HXD3D · <b>交流传动六轴客运电力机车</b></span>
+        <span class="locomotive-chip">7,200 kW</span>
+        <span class="locomotive-chip">160 km/h</span>
+      </div>
+
+      <div class="progress-cluster">
+        <div class="progress-meta">
+          <strong id="progress-stage">检查流程</strong>
+          <small id="progress-detail">共 8 个部位 · 44 个检查项</small>
+        </div>
+        <div class="progress-ring">
+          <svg width="46" height="46" viewBox="0 0 46 46">
+            <circle class="ring-bg" cx="23" cy="23" r="20"></circle>
+            <circle class="ring-fg" id="ring-fg" cx="23" cy="23" r="20"
+                    stroke-dasharray="125.6" stroke-dashoffset="125.6"></circle>
+          </svg>
+          <span id="ring-text">0%</span>
+        </div>
+      </div>
+    </header>
+
+    <!-- 左侧：检查流程 -->
+    <div class="left-shell" id="left-shell">
+      <div class="drawer-handle" data-drawer="left" aria-label="展开检查流程"><span aria-hidden="true">›</span></div>
+      <section class="hud-window">
+        <div class="hud-window-title">
+          <div><strong>检查流程</strong></div>
+          <span id="route-progress">0 / 8</span>
+        </div>
+        <div class="hud-window-body">
+          <div class="route-list" id="route-list"></div>
+          <div class="legend-row">
+            <span><i style="background:#38a8ff"></i>当前部位</span>
+            <span><i style="background:#37d69b"></i>已完成</span>
+            <span><i style="background:#ff6b6b"></i>有异常</span>
+            <span><i style="background:#ffb340"></i>关键项</span>
+          </div>
+          <div class="flow-actions">
+            <button id="btn-next" class="flow-action primary">下一部位</button>
+            <button id="btn-report" class="flow-action">结果汇总</button>
+          </div>
+        </div>
+      </section>
+    </div>
+
+    <!-- 右侧：检查项 -->
+    <div class="right-shell" id="right-shell">
+      <div class="drawer-handle" data-drawer="right" aria-label="展开检查项"><span aria-hidden="true">›</span></div>
+      <section class="hud-window">
+        <div class="hud-window-title">
+          <div><strong id="item-panel-title">检查项</strong></div>
+          <button id="toggle-all" style="border:1px solid rgba(53,123,177,.3);border-radius:4px;padding:3px 9px;font-size:10px;color:#9dc0da;background:transparent;cursor:pointer;">全部展开</button>
+        </div>
+        <div class="hud-window-body">
+          <div class="panel-intro" id="route-intro"></div>
+          <div class="safety-box" id="route-safety" style="display:none">
+            <strong>安全注意事项</strong>
+            <ul id="safety-list"></ul>
+          </div>
+          <div class="item-list" id="item-list"></div>
+        </div>
+      </section>
+    </div>
+
+    <!-- 漫游模式提示 -->
+    <div class="roam-hint" id="roam-hint" style="display:none">
+      <span>漫游中</span>
+      <small id="roam-hint-detail">点击场景锁定鼠标 · WASD 移动 · 空格跳跃 · E 交互</small>
+    </div>
+
+    <div class="mobile-rotate-message" aria-hidden="true">请将手机横向旋转</div>
+    <button class="mobile-fullscreen" id="mobile-fullscreen" type="button" aria-label="进入全屏">⛶</button>
+
+    <!-- 移动端虚拟控件：左侧固定移动摇杆 + 右侧独立动作键 -->
+    <div class="touch-controls" id="touch-controls" style="display:none">
+      <!-- 左侧：与出勤作业一致的固定移动摇杆 -->
+      <div class="virtual-joystick" id="joystick">
+        <div class="joystick-base">
+          <span class="dpad-arrow dpad-up">▲</span><span class="dpad-arrow dpad-right">▶</span>
+          <span class="dpad-arrow dpad-down">▼</span><span class="dpad-arrow dpad-left">◀</span>
+          <div class="joystick-stick" id="joystick-stick"></div>
+        </div>
+      </div>
+      <!-- 右下：动作按键 -->
+      <div class="virtual-buttons">
+        <button class="vbtn vbtn-interact" data-btn="interact" id="vbtn-interact">交互<div class="vbtn-hint">检查部件</div></button>
+        <button class="vbtn vbtn-run" data-btn="run" id="vbtn-run">加速<div class="vbtn-hint">按住</div></button>
+        <button class="vbtn vbtn-jump" data-btn="jump" id="vbtn-jump">跳跃<div class="vbtn-hint">越过障碍</div></button>
+        <button class="vbtn vbtn-crouch" data-btn="crouch" id="vbtn-crouch">下蹲<div class="vbtn-hint">按住观察</div></button>
+      </div>
+      <!-- 左/右半屏分区提示（隐藏） -->
+      <div class="touch-zone-hint" id="touch-zone-hint">
+        <span class="zone-left">← 左半屏移动</span>
+        <span class="zone-right">右半屏转视角 →</span>
+      </div>
+    </div>
+
+    <!-- 靠近检查点提示（漫游模式） -->
+    <div class="near-hint" id="near-hint" style="display:none">
+      <span class="near-icon">⌖</span>
+      <span id="near-hint-text">按 E 检视</span>
+      <small>靠近带光点的部位即可检视</small>
+    </div>
+
+    <!-- 检视面板（右侧滑出，检视模式） -->
+    <aside class="inspect-panel" id="inspect-panel" style="display:none">
+      <div class="inspect-head">
+        <div>
+          <strong id="inspect-title">部件检视</strong>
+          <small id="inspect-hint">拖动旋转视角，寻找部件上的细小标记</small>
+        </div>
+        <button class="inspect-exit" id="inspect-exit">退出检视</button>
+      </div>
+
+        <div class="inspect-meta">
+        <div class="im-row">
+          <span>故障发现</span>
+          <b id="inspect-progress">0 / 0</b>
+        </div>
+        <div class="im-row">
+          <span>状态</span>
+          <b class="inspect-status" id="inspect-status">继续旋转检视</b>
+        </div>
+        </div>
+
+        <section class="inspect-reference" id="inspect-reference" style="display:none">
+          <strong>本部件检查要点</strong>
+          <ul id="inspect-points"></ul>
+          <div class="inspect-standard" id="inspect-standard"></div>
+        </section>
+
+        <div class="inspect-body">
+        <div class="inspect-wait" id="inspect-wait" style="display:none" aria-hidden="true">
+          <div class="iw-icon">🔍</div>
+          <p>拖动旋转并检查部件表面。发现故障符号时直接点击：</p>
+          <ul class="fault-symbol-list">
+            <li><i class="glyph line"></i><b>白色线条</b><span>裂纹或焊接处裂损</span></li>
+            <li><i class="glyph square"></i><b>白色片状</b><span>轮对踏面擦伤</span></li>
+            <li><i class="glyph ring"></i><b>白色环形</b><span>轮对踏面剥离</span></li>
+            <li><i class="glyph square red"></i><b>红色片状</b><span>电器部件烧损</span></li>
+            <li><i class="glyph cross">×</i><b>白色叉号</b><span>螺栓松动</span></li>
+            <li><i class="glyph triangle">△</i><b>白色三角</b><span>油、水、风管路滴漏</span></li>
+          </ul>
+          <p class="iw-tip">未发现故障符号时，使用下方“确认未见异常”。</p>
+        </div>
+
+        <form class="fault-report-form" id="fault-report-form" style="display:none">
+          <div class="fault-form-head">
+            <strong>填报故障活件</strong>
+            <button type="button" id="fault-report-cancel">取消</button>
+          </div>
+          <label><span>机车型号</span><input id="report-locomotive" value="HXD3D 0004" required /></label>
+          <div class="fault-form-grid">
+            <label><span>哪节车或哪端</span><input id="report-end" placeholder="如 I端、1端、一端" required /></label>
+            <label><span>左侧或右侧</span><select id="report-side" required><option value="">请选择</option><option>左侧</option><option>右侧</option></select></label>
+            <label><span>第几轴</span><input id="report-axle" placeholder="如 1轴、一轴" /></label>
+            <label><span>前后位置</span><select id="report-position"><option value="">不区分</option><option>前位</option><option>中位</option><option>后位</option></select></label>
+            <label><span>部件名称</span><input id="report-part" required /></label>
+            <label><span>里侧或外侧</span><select id="report-inner-outer"><option value="">不区分</option><option>里侧</option><option>外侧</option></select></label>
+          </div>
+          <label><span>故障类型</span><select id="report-fault-type" required>
+            <option value="">请选择故障类型</option>
+            <option value="crack">裂纹或焊接处裂损</option>
+            <option value="tread-scratch">轮对踏面擦伤</option>
+            <option value="tread-peel">轮对踏面剥离</option>
+            <option value="burn">部件烧损</option>
+            <option value="loose-bolt">螺栓松动</option>
+            <option value="leak">油、水、风管路滴漏</option>
+          </select></label>
+          <button class="fault-submit" type="submit">上报故障</button>
+        </form>
+      </div>
+
+      <div class="inspect-foot">
+        <div class="inspect-decide">
+          <button class="act-btn pass" id="inspect-ok">✓ 确认未见异常</button>
+        </div>
+        <small>发现标记：点击标记并填写故障活件。未发现标记：确认未见异常。按 Esc 或点“退出检视”返回。</small>
+      </div>
+    </aside>
+
+    <!-- 关键词反馈提示 -->
+    <div class="fault-feedback" id="fault-feedback" style="display:none"></div>
+
+    <footer class="status-footer">
+      <div>
+        <span>检查人 <b id="foot-operator">—</b></span>
+        <span>开始时间 <b id="foot-time">—</b></span>
+        <span>检查点 <b id="foot-point">—</b></span>
+      </div>
+      <div>
+        <span>三维模型 <b id="foot-model">加载中</b></span>
+        <span>已完成 <b id="foot-done">0 / 44</b></span>
+        <span>异常 <b id="foot-issue">0</b></span>
+        <span>故障检出 <b id="foot-fault">—</b></span>
+      </div>
+    </footer>
+
+    <!-- 加载层 -->
+    <div class="loading-screen" id="loading">
+      <div class="loading-core"><span>HX</span></div>
+      <strong>机车检查作业系统</strong>
+      <div class="loading-track"><i id="loading-bar"></i></div>
+      <small id="loading-text">正在加载三维模型 · 0%</small>
+    </div>
+
+    <!-- 结果汇总 -->
+    <div class="report-mask" id="report-mask" style="display:none">
+      <div class="report-panel">
+        <div class="report-head">
+          <div>
+            <strong>检查结果汇总</strong>
+            <span id="report-sub"> · HXD3D型电力机车</span>
+          </div>
+          <button class="report-close" id="report-close">✕</button>
+        </div>
+        <div class="report-body" id="report-body"></div>
+        <div class="report-foot">
+          <small id="report-note"></small>
+          <div class="foot-actions">
+            <button class="foot-btn" id="btn-reset">清空重检</button>
+            <button class="foot-btn" id="btn-export">导出记录</button>
+            <button class="foot-btn primary" id="btn-print">打印报告</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script type="module" src="scripts/main.js"></script>
+</body>
+</html>
