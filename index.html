@@ -113,14 +113,8 @@
       <small id="roam-hint-detail">点击场景锁定鼠标 · WASD 移动 · 空格跳跃 · E 交互</small>
     </div>
 
-    <section class="mobile-entry" id="mobile-entry" hidden aria-label="移动端训练入口">
-      <div>
-        <b>横屏进入仿真实训</b>
-        <span>点击后将请求全屏并锁定横屏</span>
-        <button id="mobile-enter" type="button">进入训练</button>
-      </div>
-    </section>
-    <div class="mobile-rotate-message" aria-hidden="true">请旋转手机以继续训练</div>
+    <div class="mobile-rotate-message" aria-hidden="true">请将手机横向旋转</div>
+    <button class="mobile-fullscreen" id="mobile-fullscreen" type="button" aria-label="横屏全屏">⛶</button>
     <button class="mobile-exit" id="mobile-exit" type="button" aria-label="退出训练">×</button>
 
     <!-- 移动端虚拟控件：左侧固定移动摇杆 + 右侧独立动作键 -->
@@ -255,7 +249,7 @@
       <div class="loading-core"><span>HX</span></div>
       <strong>机车检查作业系统</strong>
       <div class="loading-track"><i id="loading-bar"></i></div>
-      <small id="loading-text">正在加载三维模型</small>
+      <small id="loading-text">正在加载三维模型 · 0%</small>
     </div>
 
     <!-- 结果汇总 -->
