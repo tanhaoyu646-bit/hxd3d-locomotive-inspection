@@ -101,12 +101,12 @@ export function normalizedRegionToBox(region) {
  * 外侧边界 = 3.03m（再远就看不清部件细节）
  */
 const STAND_ZONE = Object.freeze({
-  left: { w: [-0.34, -0.12] },   // Δz ∈ [-3.02, -2.23]
-  right: { w: [1.12, 1.34] },    // Δz ∈ [ +2.23,  +3.02]
+  left: { w: [-0.42, -0.08] },   // 放宽外侧站位带，避免已在车侧仍被判“未到位”
+  right: { w: [1.08, 1.42] },
 })
 
 /** 站位纵向半宽（±0.055 ≈ ±1.27m），允许学生沿车体前后微调站姿 */
-const STAND_U_HALF = 0.055
+const STAND_U_HALF = 0.09
 /** 站位垂向范围：地面（玩家脚底 y=0，即 v≈-0.021）到轻微起伏 */
 const STAND_V = [-0.15, 0.35]
 
@@ -230,6 +230,7 @@ export const PART_TYPE_DEFS = Object.freeze({
     judge: {
       pass: '减振器无漏油，连接销与安装座紧固，橡胶节点无开裂',
       faults: [
+        { faultType: 'crack', count: 1 },
         { faultType: 'leak', count: 1 },
         { faultType: 'loose-bolt', count: 1 },
       ],

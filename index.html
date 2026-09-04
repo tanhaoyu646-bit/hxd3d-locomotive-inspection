@@ -82,7 +82,7 @@
           </div>
           <div class="flow-actions">
             <button id="btn-next" class="flow-action primary">下一部位</button>
-            <button id="btn-report" class="flow-action">结果汇总</button>
+            <button id="btn-report" class="flow-action">提交作业</button>
           </div>
         </div>
       </section>
@@ -211,6 +211,7 @@
             <option value="burn">部件烧损</option>
             <option value="loose-bolt">螺栓松动</option>
             <option value="leak">油、水、风管路滴漏</option>
+            <option value="marking">标志、车号缺失或模糊</option>
           </select></label>
           <button class="fault-submit" type="submit">上报故障</button>
         </form>
@@ -231,6 +232,7 @@
       <div>
         <span>检查人 <b id="foot-operator">—</b></span>
         <span>开始时间 <b id="foot-time">—</b></span>
+        <span>剩余时间 <b id="foot-timer">—</b></span>
         <span>检查点 <b id="foot-point">—</b></span>
       </div>
       <div>

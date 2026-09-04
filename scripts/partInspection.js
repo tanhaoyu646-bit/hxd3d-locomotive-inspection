@@ -12,8 +12,8 @@
  *      在检查点周边、原模型**真实表面**上绘制极小的短横线：
  *        · 结构件 → 白色短横线（模拟裂纹）
  *        · 电气件 → 红色短横线 / 红点（模拟烧损）
- *      标记位置优先选隐蔽方向（朝下、朝内、背面），
- *      玩家必须放大并旋转视角才能发现。
+ *      标记只落在学生从车外能看见的零部件外表面，
+ *      不向车体腔体、背面或相邻部件投射。
  *
  * 学生流程：
  *   漫游靠近检查点 → 按 E（或点虚拟交互键）→ 相机聚焦放大该点
@@ -33,6 +33,7 @@ export const FAULT_TYPES = Object.freeze({
   burn: { label: '部件烧损', shape: 'square', color: 0xff3b3b, keywords: ['烧损', '烧蚀'] },
   'loose-bolt': { label: '螺栓松动', shape: 'cross', color: 0xffffff, keywords: ['螺栓松动', '松动'] },
   leak: { label: '油、水、风管路滴漏', shape: 'triangle', color: 0xffffff, keywords: ['滴漏', '漏泄', '漏油', '漏气', '漏水'] },
+  marking: { label: '标志、车号缺失或模糊', shape: 'smudge', color: 0xd9e4e8, keywords: ['标志缺失', '标志模糊', '车号模糊', '字迹不清'] },
 })
 
 /** 兼容旧区域配置与旧存档；新配置一律使用 faultType。 */
@@ -117,6 +118,7 @@ export function buildInspectionPoints(routes, bounds, opts = {}) {
       item,
       route,
       reportPartName: item.fault.reportPartName ?? item.name,
+      fault: item.fault,
       position: regionCenter(bounds, item.fault.region),
       region: item.fault.region,
       geometryBox: regionToBox(bounds, item.fault.region),
@@ -177,6 +179,51 @@ function mulberry32(seed) {
 }
 
 /**
+ * 每个可交互零部件一次训练只布置一个假设性故障。
+ * 原先把同一部件的全部候选故障同时画出，既不符合真实训练场景，也会让标记堆在一起。
+ */
+function chooseScenarioFault(faults, rng) {
+  if (!faults?.length) return []
+  return [faults[Math.floor(rng() * faults.length) % faults.length]]
+}
+
+/** 由配置或所在区域推导出学生可见的车外朝向。 */
+function exteriorDirection(point, bounds) {
+  const hint = point?.fault?.exterior ?? point?.exterior
+  const named = {
+    'i-end': [1, 0, 0], 'ii-end': [-1, 0, 0],
+    left: [0, 0, -1], right: [0, 0, 1],
+    top: [0, 1, 0], bottom: [0, -1, 0],
+  }
+  if (named[hint]) return new THREE.Vector3(...named[hint])
+  if (!bounds) return new THREE.Vector3(0, 0, -1)
+  const center = bounds.getCenter(new THREE.Vector3())
+  const size = bounds.getSize(new THREE.Vector3())
+  const d = point.position.clone().sub(center)
+  // 端部区域优先从车外正面观察；其余按左右外侧观察。
+  if (Math.abs(d.x) / Math.max(size.x, 1) > 0.33) return new THREE.Vector3(Math.sign(d.x) || 1, 0, 0)
+  return new THREE.Vector3(0, 0, Math.sign(d.z) || -1)
+}
+
+/** 从车外向目标盒投射，返回最外层、可见的真实模型表面。 */
+function findExteriorSurface(modelRoot, point, box, direction, raycaster) {
+  const origin = point.position.clone().addScaledVector(direction, 4.5)
+  raycaster.set(origin, direction.clone().negate())
+  raycaster.far = 9
+  const hits = raycaster.intersectObject(modelRoot, true)
+  const hit = box
+    ? hits.find((candidate) => box.containsPoint(candidate.point))
+    : hits[0]
+  if (!hit) return null
+  const normal = hit.face
+    ? hit.face.normal.clone().transformDirection(hit.object.matrixWorld).normalize()
+    : direction.clone()
+  // 面法线偶有反向，始终把符号抬离学生所在的车外一侧。
+  if (normal.dot(direction) < 0) normal.negate()
+  return { surfacePoint: hit.point.clone().addScaledVector(normal, 0.009), normal, direction }
+}
+
+/**
  * 故障符号以线框叠加在模型表面：避免改变原 GLB，同时用形状区分不同故障。
  * line=线条、triangle=三角、ring=环形、cross=叉形；颜色仍由故障类别决定。
  */
@@ -221,11 +268,23 @@ function createFaultGlyph({ surfacePoint, normal, tangent, length, color, shape 
       lift(surfacePoint.clone().addScaledVector(b, -r)), lift(surfacePoint.clone().addScaledVector(b, r)),
     ]
     Type = THREE.LineSegments
+  } else if (shape === 'smudge') {
+    // 标志文字模糊/缺失：用两条短而不规则的浅色擦拭痕模拟，不借用六类粉笔符号。
+    const r = length * 0.52
+    points = [-0.35, 0.18].flatMap((offset) => [
+      lift(surfacePoint.clone().addScaledVector(t, -r).addScaledVector(b, offset * length)),
+      lift(surfacePoint.clone().addScaledVector(t, r * 0.72).addScaledVector(b, (offset + 0.08) * length)),
+    ])
+    Type = THREE.LineSegments
   } else {
-    points = [
-      lift(surfacePoint.clone().addScaledVector(t, -length / 2)),
-      lift(surfacePoint.clone().addScaledVector(t, length / 2)),
-    ]
+    // 裂纹不画成绝对直线，保留轻微弯折，接近粉笔手绘痕迹。
+    const steps = 5
+    points = Array.from({ length: steps }, (_, i) => {
+      const ratio = i / (steps - 1)
+      const along = (ratio - 0.5) * length
+      const wobble = Math.sin((ratio * 5.1) + surfacePoint.x * 3.7 + surfacePoint.y * 1.9) * length * 0.055
+      return lift(surfacePoint.clone().addScaledVector(t, along).addScaledVector(b, wobble))
+    })
   }
 
   return new Type(
@@ -235,8 +294,7 @@ function createFaultGlyph({ surfacePoint, normal, tangent, length, color, shape 
 }
 
 /**
- * 在检查点周边、原模型真实表面上绘制故障标记
- * 位置优先选隐蔽方向（朝下 / 朝内 / 背面），需旋转视角才能发现
+ * 在检查点的车外可见表面绘制故障标记。
  *
  * @param {THREE.Object3D} modelRoot 原模型根（不修改其几何）
  * @param {Object} point 检查点
@@ -247,66 +305,21 @@ export function paintFaultMarkersOnModel(modelRoot, point, opts = {}) {
   const rng = mulberry32(Math.floor((opts.seed ?? Math.random()) * 1e9))
   const markers = []
   if (!modelRoot || !point) return markers
-
-  // 统计需要画的标记总数
-  const plan = []
-  for (const f of point.faults) {
-    const count = f.count ?? 1
-    for (let i = 0; i < count; i += 1) plan.push(f)
-  }
-  if (!plan.length) plan.push({ colorType: 'white', keywords: FAULT_KEYWORDS.white.keywords })
-
-  // 隐蔽方向候选：优先朝下、朝车体内侧、朝车长内侧
-  const hiddenDirs = [
-    new THREE.Vector3(0, -1, 0),
-    new THREE.Vector3(0, -0.7, 0.7),
-    new THREE.Vector3(0, -0.7, -0.7),
-    new THREE.Vector3(0.35, -0.55, 0.6),
-    new THREE.Vector3(-0.35, -0.55, -0.6),
-    new THREE.Vector3(0.5, -0.3, 0.8),
-    new THREE.Vector3(-0.5, -0.3, -0.8),
-    new THREE.Vector3(0.85, -0.2, 0.3),
-    new THREE.Vector3(-0.85, -0.2, -0.3),
-  ]
-
+  const plan = chooseScenarioFault(point.faults, rng)
+  if (!plan.length) return markers
   const raycaster = new THREE.Raycaster()
-  raycaster.far = 12
-
+  const bounds = new THREE.Box3().setFromObject(modelRoot)
+  const allowedBox = point.geometryBox?.clone?.().expandByScalar(0.025) ?? null
   for (const spec of plan) {
     const resolved = resolveFaultSpec(spec)
     const { colorType, keywords, faultType } = resolved
-
-    // 从检查点向隐蔽方向发射线，命中模型表面即为标记位置
-    let hit = null
-    const shuffled = hiddenDirs.slice()
-    // 简单洗牌
-    for (let i = shuffled.length - 1; i > 0; i -= 1) {
-      const j = Math.floor(rng() * (i + 1))
-      const tmp = shuffled[i]; shuffled[i] = shuffled[j]; shuffled[j] = tmp
-    }
-    for (const dir of shuffled) {
-      const jitter = new THREE.Vector3(
-        (rng() - 0.5) * 0.5,
-        (rng() - 0.5) * 0.3,
-        (rng() - 0.5) * 0.5,
-      )
-      const d = dir.clone().add(jitter).normalize()
-      raycaster.set(point.position.clone(), d)
-      const hits = raycaster.intersectObject(modelRoot, true)
-      const scoped = point.geometryBox
-        ? hits.find((candidate) => point.geometryBox.clone().expandByScalar(0.03).containsPoint(candidate.point))
-        : hits[0]
-      if (scoped) { hit = scoped; break }
-    }
-    if (!hit) continue
-
-    const surfacePoint = hit.point.clone()
-    const normal = hit.face
-      ? hit.face.normal.clone().transformDirection(hit.object.matrixWorld).normalize()
-      : new THREE.Vector3(0, 1, 0)
+    const exterior = exteriorDirection(point, bounds)
+    const surface = findExteriorSurface(modelRoot, point, allowedBox, exterior, raycaster)
+    if (!surface) continue
+    const { surfacePoint, normal } = surface
 
     // 生成表面故障符号（沿表面切线方向）
-    const length = 0.075 + rng() * 0.045
+    const length = spec.length ?? (0.065 + rng() * 0.018)
     const helper = Math.abs(normal.x) < 0.9 ? new THREE.Vector3(1, 0, 0) : new THREE.Vector3(0, 1, 0)
     const tangent = new THREE.Vector3().crossVectors(normal, helper).normalize()
     const shape = resolved.shape
@@ -331,7 +344,7 @@ export function paintFaultMarkersOnModel(modelRoot, point, opts = {}) {
     proxy.renderOrder = 21
     proxy.userData = { isFaultProxy: true, marker: line }
 
-    markers.push({ line, proxy, colorType, faultType, label: resolved.label, keywords, shape, found: false })
+    markers.push({ line, proxy, normal: normal.clone(), surfacePoint: surfacePoint.clone(), color: resolved.color, colorType, faultType, label: resolved.label, keywords, shape, found: false })
   }
 
   return markers
@@ -369,11 +382,8 @@ export function paintFaultMarkersOnPart(modelRoot, point, opts = {}) {
   else outboard.set(0, 0, -1)
   outboard.normalize()
 
-  // 计划绘制的标记
-  const plan = []
-  for (const f of part.judge?.faults ?? []) {
-    for (let i = 0; i < (f.count ?? 1); i += 1) plan.push(f)
-  }
+  // 同一物理零部件只随机布置一个候选故障，避免裂纹、三角、叉号堆在一起。
+  const plan = chooseScenarioFault(part.judge?.faults ?? [], rng)
   if (!plan.length) return markers
 
   const raycaster = new THREE.Raycaster()
@@ -391,8 +401,8 @@ export function paintFaultMarkersOnPart(modelRoot, point, opts = {}) {
 
     const tread = spec.surface === 'tread'
     const castDir = tread ? new THREE.Vector3(0, -1, 0) : outboard.clone().negate()
-    let surfacePoint = null
-    let normal = outboard.clone()
+    let surfacePoint = tread ? null : point.surfaceAnchor?.clone?.() ?? null
+    let normal = tread ? outboard.clone() : point.surfaceNormal?.clone?.() ?? outboard.clone()
     // 合并网格局部可能存在缝隙，最多换 12 个采样点，但绝不退回到虚拟盒表面。
     for (let attempt = 0; attempt < 12 && !surfacePoint; attempt += 1) {
       const sample = center.clone().add(new THREE.Vector3(
@@ -413,7 +423,7 @@ export function paintFaultMarkersOnPart(modelRoot, point, opts = {}) {
     // 没有命中本部件真实表面就不画，避免标记漂浮或落到相邻部件。
     if (!surfacePoint) continue
 
-    const length = 0.075 + rng() * 0.045
+    const length = spec.length ?? (0.065 + rng() * 0.018)
     const helper = Math.abs(normal.x) < 0.9 ? new THREE.Vector3(1, 0, 0) : new THREE.Vector3(0, 1, 0)
     const tangent = new THREE.Vector3().crossVectors(normal, helper).normalize()
     const shape = resolved.shape
@@ -432,7 +442,7 @@ export function paintFaultMarkersOnPart(modelRoot, point, opts = {}) {
     proxy.renderOrder = 21
     proxy.userData = { isFaultProxy: true, marker: line }
 
-    markers.push({ line, proxy, colorType, faultType, label: resolved.label, keywords, shape, found: false })
+    markers.push({ line, proxy, normal: normal.clone(), surfacePoint: surfacePoint.clone(), color: resolved.color, colorType, faultType, label: resolved.label, keywords, shape, found: false })
   }
 
   return markers

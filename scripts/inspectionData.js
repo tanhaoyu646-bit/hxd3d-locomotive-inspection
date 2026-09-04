@@ -752,6 +752,7 @@ export const INSPECTION_ROUTES = [
         risk: '车钩裂纹会导致列车分离，属最严重后果的故障之一',
         fault: {
           region: { u: [0.96, 1.0], v: [0.14, 0.22], w: [0.42, 0.58] },
+          exterior: 'i-end',
           partType: 'structural',
           faults: [
             { faultType: 'crack', count: 1 },
@@ -774,6 +775,7 @@ export const INSPECTION_ROUTES = [
           // 钩提销位于车钩上部中心，旧区间高度偏高，会误落到端部车体螺栓。
           region: { u: [0.965, 0.995], v: [0.145, 0.195], w: [0.465, 0.535] },
           reportPartName: '钩提销与提钩装置',
+          exterior: 'i-end',
           partType: 'structural',
           faults: [{ faultType: 'loose-bolt', count: 1 }],
         },
@@ -793,6 +795,7 @@ export const INSPECTION_ROUTES = [
         fault: {
           region: { u: [0.91, 0.955], v: [0.13, 0.22], w: [0.40, 0.60] },
           reportPartName: '缓冲器与从板座',
+          exterior: 'i-end',
           partType: 'structural',
           faults: [{ faultType: 'crack', count: 1 }, { faultType: 'loose-bolt', count: 1 }],
         },
@@ -811,6 +814,7 @@ export const INSPECTION_ROUTES = [
         risk: '钩高超限会造成连接困难或运行中脱钩',
         fault: {
           region: { u: [0.965, 1.0], v: [0.12, 0.18], w: [0.46, 0.54] },
+          exterior: 'i-end',
           partType: 'structural',
           faults: [{ faultType: 'crack', count: 1 }],
         },
@@ -828,11 +832,33 @@ export const INSPECTION_ROUTES = [
         standard: '软管完好无裂纹，塞门作用灵活位置正确，电气连接线无破损',
         risk: '风管爆裂会造成列车紧急制动，电气连接不良会导致控制失效',
         fault: {
-          region: { u: [0.95, 1.0], v: [0.16, 0.34], w: [0.28, 0.72] },
+          region: { u: [0.965, 0.995], v: [0.18, 0.32], w: [0.26, 0.42] },
+          reportPartName: '制动软管与折角塞门',
+          exterior: 'i-end',
           partType: 'brake',
           faults: [
             { faultType: 'leak', count: 1 },
           ],
+        },
+      },
+      {
+        id: 'coupler-6',
+        name: '电源插座与重联连接器',
+        level: 'A',
+        methods: ['visual', 'test'],
+        points: [
+          '检查电源插座、重联插座外壳无破损、烧蚀和进水痕迹',
+          '检查插针无弯曲、松动、缺失，防尘盖齐全并能可靠闭合',
+          '检查连接器固定牢固，线缆护套无破损、无异常发热变色',
+        ],
+        standard: '插座壳体、插针和防尘盖完好，连接牢固，无烧损、进水和松动',
+        risk: '插座烧损或接触不良会造成重联、控制和照明电路异常',
+        fault: {
+          region: { u: [0.965, 0.995], v: [0.20, 0.36], w: [0.60, 0.76] },
+          reportPartName: '电源插座与重联连接器',
+          exterior: 'i-end',
+          partType: 'electrical',
+          faults: [{ faultType: 'burn', count: 1 }],
         },
       },
     ],
@@ -876,7 +902,9 @@ export const INSPECTION_ROUTES = [
         standard: '灯具完好固定牢固，远近光与标志灯显示正常，照射方向正确',
         risk: '夜间照明与标志灯失效会造成行车冲突风险',
         fault: {
-          region: { u: [0.0, 0.05], v: [0.6, 0.72], w: [0.4, 0.6] },
+          // II端前照灯位于端部下半区；端面为斜面，区域需覆盖其真实外表面。
+          region: { u: [0.0, 0.10], v: [0.25, 0.38], w: [0.34, 0.66] },
+          exterior: 'ii-end',
           partType: 'structural',
           faults: [
             { faultType: 'crack', count: 1 },
@@ -896,7 +924,9 @@ export const INSPECTION_ROUTES = [
         standard: '前挡风玻璃完整清晰，无裂纹破损；压条、密封胶条完好牢固，无渗水；瞭望视野满足要求',
         risk: '挡风玻璃裂损或密封失效会影响瞭望，并可能在运行中扩大破损',
         fault: {
-          region: { u: [0.95, 1.0], v: [0.52, 0.72], w: [0.22, 0.78] },
+          // I端挡风玻璃在倾斜前端面，不能按整车包围盒最前端的窄区取点。
+          region: { u: [0.88, 1.0], v: [0.50, 0.72], w: [0.18, 0.82] },
+          exterior: 'i-end',
           partType: 'structural',
           faults: [
             { faultType: 'crack', count: 1 },
@@ -941,6 +971,46 @@ export const INSPECTION_ROUTES = [
         ],
         standard: '感应器安装牢固位置正确，接线完好，无侵限',
         risk: '过分相装置失效会造成带电过分相，烧损设备',
+      },
+      {
+        id: 'signal-6',
+        name: '端部刷箱与随车清洁用品',
+        level: 'C',
+        methods: ['visual'],
+        points: [
+          '打开并检查刷箱，确认箱体、铰链和锁扣完好，盖板闭合可靠',
+          '确认刷箱内无抹布、包装袋等遗留异物，不占用或遮挡应急备品',
+          '检查刷箱安装螺栓紧固，箱体无裂纹、无明显变形',
+        ],
+        standard: '刷箱清洁、无遗留异物，箱体及锁扣完好，安装牢固',
+        risk: '遗留抹布等异物会影响备品取用，并可能形成消防隐患',
+        fault: {
+          region: { u: [0.95, 0.99], v: [0.30, 0.50], w: [0.70, 0.88] },
+          reportPartName: '端部刷箱',
+          exterior: 'i-end',
+          partType: 'structural',
+          faults: [{ faultType: 'crack', count: 1 }],
+        },
+      },
+      {
+        id: 'signal-7',
+        name: '“和谐”标志与车号清晰度',
+        level: 'B',
+        methods: ['visual'],
+        points: [
+          '检查前端“和谐”标志、车号和警示标记是否齐全、清晰、无脱落',
+          '确认文字、图形无大面积褪色、污损或模糊不清',
+          '检查标志牌固定牢固，无翘边、开裂或缺失',
+        ],
+        standard: '标志和车号完整、清晰、固定牢固，满足识别要求',
+        risk: '车号或警示标志模糊、缺失会影响识别和现场安全确认',
+        fault: {
+          region: { u: [0.95, 0.995], v: [0.42, 0.56], w: [0.40, 0.60] },
+          reportPartName: '“和谐”标志与车号',
+          exterior: 'i-end',
+          partType: 'structural',
+          faults: [{ faultType: 'marking', count: 1 }],
+        },
       },
     ],
   },

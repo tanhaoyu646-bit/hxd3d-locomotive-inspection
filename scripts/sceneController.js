@@ -21,6 +21,7 @@ import { createLocomotiveCollisionSystem } from './parts/LocomotiveCollisionSyst
 import { getRunningGearParts, getRunningGearItemIds } from './parts/runningGearParts.js'
 import { createPartInteractionFSM } from './parts/partInteractionFSM.js'
 import { buildItemIndex } from './inspectionData.js'
+import { SCENARIO_FAULT_POINT_IDS } from './faultScenario.js'
 import {
   buildInspectionPoints,
   buildPartPoints,
@@ -44,6 +45,11 @@ const INSPECT_DISTANCE = 1.1   // 聚焦放大后的观察距离
 
 /** 走行部检查项：这些检查项改由零部件配置驱动，不再用手写的 fault.region */
 const RUNNING_GEAR_ITEM_IDS = new Set(getRunningGearItemIds())
+
+/**
+ * 本轮训练的假设性故障布置。只在这些真实、可从车外观察的位置放置一枚小标记；
+ * 其余零部件仍保留小型交互点，可用于“确认未见异常”。
+ */
 
 function easeInOutCubic(t) {
   return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2
@@ -327,8 +333,10 @@ export function createInspectionScene(container, callbacks = {}) {
     partPoints = runningGearRoute
       ? buildPartPoints(getRunningGearParts(), runningGearRoute, buildItemIndex())
       : []
+    regionPoints.forEach(calibrateRegionAnchor)
     partPoints.forEach(calibratePartAnchor)
     inspectionPoints = [...regionPoints, ...partPoints]
+    inspectionPoints.forEach((p) => { p.hasScenarioFault = SCENARIO_FAULT_POINT_IDS.has(p.id) })
 
     // ── 环节入口点：升弓电气检查（车外安全确认）──
     // 车顶高压设备在出勤整备中无法登顶检视（需停电验电挂地线），原 roof 环节
@@ -370,7 +378,46 @@ export function createInspectionScene(container, callbacks = {}) {
       pointGroup.add(marker)
       p.node = marker
     })
+    // 在漫游时就可看到极小的假设故障符号，但只布置在本轮指定的独立零部件上。
+    inspectionPoints.filter((p) => p.hasScenarioFault).forEach(activatePointFaults)
     return inspectionPoints
+  }
+
+  /** 区域检查点的外部朝向。端部优先正对车头/车尾，其余按车体左右外侧。 */
+  function exteriorDirectionFor(point) {
+    const hint = point?.fault?.exterior
+    const named = {
+      'i-end': [1, 0, 0], 'ii-end': [-1, 0, 0],
+      left: [0, 0, -1], right: [0, 0, 1], top: [0, 1, 0], bottom: [0, -1, 0],
+    }
+    if (named[hint]) return new THREE.Vector3(...named[hint])
+    const c = modelBounds.getCenter(new THREE.Vector3())
+    const s = modelBounds.getSize(new THREE.Vector3())
+    const d = point.position.clone().sub(c)
+    if (Math.abs(d.x) / Math.max(s.x, 1) > 0.33) return new THREE.Vector3(Math.sign(d.x) || 1, 0, 0)
+    return new THREE.Vector3(0, 0, Math.sign(d.z) || -1)
+  }
+
+  /** 区域检查点也必须贴到最外层可见表面，不能留在机车内腔。 */
+  function calibrateRegionAnchor(point) {
+    if (!locomotiveRoot || !point?.geometryBox) return
+    const outward = exteriorDirectionFor(point)
+    const origin = point.position.clone().addScaledVector(outward, 4.5)
+    raycaster.set(origin, outward.clone().negate())
+    raycaster.far = 9
+    const box = point.geometryBox.clone().expandByScalar(0.025)
+    const hit = raycaster.intersectObject(locomotiveRoot, true).find((h) => box.containsPoint(h.point))
+    if (!hit) return
+    const normal = hit.face
+      ? hit.face.normal.clone().transformDirection(hit.object.matrixWorld).normalize()
+      : outward.clone()
+    if (normal.dot(outward) < 0) normal.negate()
+    point.surfaceNormal = normal
+    point.surfaceViewDirection = outward
+    point.surfaceAnchor = hit.point.clone().addScaledVector(normal, 0.018)
+    point.interactionTarget = point.surfaceAnchor.clone()
+    // 漫游小光点也贴在外表面；不再落在合并网格的内部语义中心。
+    point.position.copy(point.surfaceAnchor)
   }
 
   /**
@@ -396,8 +443,19 @@ export function createInspectionScene(container, callbacks = {}) {
     raycaster.set(origin, outboard.clone().negate())
     raycaster.far = 7
     const hit = raycaster.intersectObject(locomotiveRoot, true).find((h) => box.containsPoint(h.point))
-    point.surfaceAnchor = hit?.point?.clone?.() ?? null
-    point.interactionTarget = point.surfaceAnchor?.clone?.() ?? center.clone()
+    if (hit) {
+      const normal = hit.face
+        ? hit.face.normal.clone().transformDirection(hit.object.matrixWorld).normalize()
+        : outboard.clone()
+      if (normal.dot(outboard) < 0) normal.negate()
+      point.surfaceNormal = normal
+      point.surfaceAnchor = hit.point.clone().addScaledVector(normal, 0.018)
+      point.interactionTarget = point.surfaceAnchor.clone()
+      point.position.copy(point.surfaceAnchor)
+    } else {
+      point.surfaceAnchor = null
+      point.interactionTarget = center.clone()
+    }
   }
 
   /** 零部件检查点是否被车体/其他部件遮挡（从眼睛到部件中心） */
@@ -433,6 +491,7 @@ export function createInspectionScene(container, callbacks = {}) {
   /** 为检查点生成故障标记（零部件检查点锚定到该零部件表面，区域点沿用原逻辑） */
   function activatePointFaults(point) {
     if (!point || point.markers.length) return point?.markers ?? []
+    if (!point.hasScenarioFault) return []
     // 同一检查点在一次训练及重检时使用相同布置，保证评分可复盘。
     let hash = 2166136261
     for (const ch of String(point.id)) hash = Math.imul(hash ^ ch.charCodeAt(0), 16777619)
@@ -467,7 +526,7 @@ export function createInspectionScene(container, callbacks = {}) {
   function resolveInteractionTarget(ctx, { hud = false } = {}) {
     const eye = ctx.position.clone().add(new THREE.Vector3(0, ctx.eyeHeight ?? 1.7, 0))
     const forward = getCameraForward3D()
-    const minAim = hud ? 0.56 : 0.64
+    const minAim = 0.55
     let best = null
     for (const point of inspectionPoints) {
       const target = point.interactionTarget ?? point.position
@@ -484,7 +543,12 @@ export function createInspectionScene(container, callbacks = {}) {
       const aim = forward.dot(toTarget.multiplyScalar(1 / spatialDistance))
       if (aim < minAim) continue
       // 准星方向远比距离重要；距离只在近似同向的候选之间消歧。
-      const score = aim * 10 - horizontalDistance * 0.12 - spatialDistance * 0.015
+      // HUD 与实际按键都优先选择“已站到允许站位”的那个零部件，
+      // 避免相邻轴箱/弹簧的目标抢占后又提示“请走到车体侧站位”。
+      const inZone = p.isPartPoint && partFSM
+        ? partFSM.evaluate(p, ctx, { skipOcclusion: true }).conditions.some((c) => c.code === 'inZone' && c.met)
+        : false
+      const score = aim * 10 - horizontalDistance * 0.12 - spatialDistance * 0.015 + (inZone ? 12 : 0)
       if (!best || score > best.score) {
         best = { point, distance: horizontalDistance, spatialDistance, aim, score }
       }
@@ -617,7 +681,10 @@ export function createInspectionScene(container, callbacks = {}) {
       offsetDir.y += pitch * 1.4 + 0.35 // 俯仰转化为相机高度偏移
       offsetDir.normalize()
     } else {
-      offsetDir = new THREE.Vector3(0.8, 0.35, 1).normalize()
+      // 区域点使用校准时的车外朝向，缓冲器、挡风玻璃等不会再把镜头推进车体内侧。
+      offsetDir = (point.surfaceViewDirection?.clone?.() ?? new THREE.Vector3(0.8, 0.35, 1))
+      offsetDir.y += 0.22
+      offsetDir.normalize()
     }
     const target = point.interactionTarget?.clone?.() ?? point.position.clone()
     const position = target.clone().addScaledVector(offsetDir, dist)
@@ -779,7 +846,7 @@ export function createInspectionScene(container, callbacks = {}) {
         m.found = false
         if (m.line) {
           const def = FAULT_KEYWORDS[m.colorType] || FAULT_KEYWORDS.white
-          m.line.material.color.setHex(def.color)
+          m.line.material.color.setHex(m.color ?? def.color)
           m.line.material.opacity = 0.98
         }
       }
@@ -971,6 +1038,13 @@ export function createInspectionScene(container, callbacks = {}) {
     markFound,
     resetMarkers,
     getInspectionPoints: () => inspectionPoints,
+    getFaultStats: () => {
+      const points = inspectionPoints.filter((p) => p.hasScenarioFault)
+      return {
+        found: points.reduce((sum, p) => sum + (p.markers?.filter((m) => m.found).length ?? 0), 0),
+        total: points.reduce((sum, p) => sum + (p.markers?.length ?? 0), 0),
+      }
+    },
     getActivePoint: () => activePoint,
     exitInspect: () => setMode('scene'),
     getActiveCenter: () => lastCenter,

@@ -21,7 +21,9 @@ import { getRunningGearItemIds, getRunningGearParts } from './parts/runningGearP
 import { createInspectionFlow } from './inspectionFlow.js'
 import { computeScore } from './scoring.js'
 
-const STORAGE_KEY = 'hxd3d-inspection-underframe-record-v1'
+const STORAGE_KEY = 'hxd3d-inspection-underframe-record-v2'
+/** 当前开放的车外检查项目合计约 26 分钟，按 30 分钟作为一轮训练时限。 */
+const SESSION_LIMIT_SECONDS = 30 * 60
 const RING_LENGTH = 125.6
 /** 当前只开放可在车外完成的检查：走行部、车钩连接、端部外观与信号。 */
 const ACTIVE_ROUTE_IDS = new Set(['bogie', 'coupler', 'signal'])
@@ -52,6 +54,7 @@ let activePoint = null       // 当前检视的检查点
 let pendingMarker = null     // 待判定的故障标记
 let preInspectMode = 'scene' // 进入检视前的模式（退出时返回）
 let contextItemId = null     // 漫游中当前靠近/正在检视的部件，只在右侧展示它的要点
+let sessionTimer = null
 
 // 检查流程显式状态机（skill 约束 1）：阶段推进 + 完成判定
 const flow = createInspectionFlow(INSPECTION_ROUTES, {
@@ -72,7 +75,15 @@ function saveState() {
   try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)) } catch {}
 }
 function resetState() {
-  state = { sessionId: `JC${Date.now().toString().slice(-8)}`, operator: state.operator, startTime: formatNow(), items: {} }
+  state = {
+    sessionId: `JC${Date.now().toString().slice(-8)}`,
+    operator: state.operator,
+    startTime: formatNow(),
+    deadlineAt: Date.now() + SESSION_LIMIT_SECONDS * 1000,
+    finishedAt: '',
+    finishReason: '',
+    items: {},
+  }
   saveState()
 }
 function formatNow() {
@@ -98,6 +109,8 @@ function globalStats() {
 }
 /** 故障检视评分：已发现标记 / 总标记 */
 function faultStats() {
+  const scenario = scene?.getFaultStats?.()
+  if (scenario?.total) return { ...scenario, rate: scenario.found / scenario.total }
   let found = 0, total = 0
   INSPECTION_ROUTES.forEach((r) => {
     r.items.forEach((i) => {
@@ -106,6 +119,32 @@ function faultStats() {
     })
   })
   return { found, total, rate: total ? found / total : 0 }
+}
+
+function formatRemaining(seconds) {
+  const s = Math.max(0, Math.ceil(seconds))
+  return `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`
+}
+
+function updateSessionTimer() {
+  if (!state.deadlineAt) state.deadlineAt = Date.now() + SESSION_LIMIT_SECONDS * 1000
+  const remaining = Math.max(0, (state.deadlineAt - Date.now()) / 1000)
+  $('foot-timer').textContent = formatRemaining(remaining)
+  if (remaining <= 0 && !state.finishedAt) finishTraining('训练时间已到')
+}
+
+function finishTraining(reason) {
+  if (state.finishedAt) return
+  state.finishedAt = formatNow()
+  state.finishReason = reason
+  saveState()
+  if (scene?.getMode?.() === 'inspect') exitInspect()
+  renderReport({ final: true })
+}
+
+function maybeFinishTraining() {
+  const g = globalStats()
+  if (g.done === g.total && !state.finishedAt) finishTraining('全部检查项目已完成')
 }
 
 // ───────────────────────── 渲染：左侧流程 ─────────────────────────
@@ -294,6 +333,7 @@ function applyItemResult(item, action, card) {
   renderRouteList()
   showToast(action === 'ok' ? `已确认合格：${item.name}`
     : action === 'ng' ? `已登记异常：${item.name}` : `已清除记录：${item.name}`)
+  if (action === 'ok' || action === 'ng') maybeFinishTraining()
 }
 
 // ───────────────────────── 进度 ─────────────────────────
@@ -485,7 +525,7 @@ function submitFaultReport(event) {
 
   const matched = matchFaultType(faultType, pendingMarker.faultType)
   if (!matched.matched) {
-    showFeedback(false, '符号判断不符', '请按白线、白片、白环、红片、白叉或白三角的含义重新判断')
+    showFeedback(false, '标记判断不符', '请根据当前标记的形态和所在零部件重新选择故障类型')
     return
   }
   const report = {
@@ -506,6 +546,7 @@ function submitFaultReport(event) {
   refreshProgress()
   renderRouteList()
   exitInspect()
+  maybeFinishTraining()
 }
 
 function composeFaultReport(report) {
@@ -583,6 +624,7 @@ function decideFromInspect(action) {
     showToast(action === 'ok' ? '已确认升弓电气检查合格' : '已登记升弓电气检查异常')
     refreshProgress(); renderRouteList(); renderRouteDetail()
     exitInspect()
+    maybeFinishTraining()
     return
   }
   const item = activePoint.item
@@ -616,12 +658,17 @@ function decideFromInspect(action) {
   renderRouteList()
   renderRouteDetail()
   exitInspect()
+  maybeFinishTraining()
 }
 
 // ───────────────────────── 结果汇总 ─────────────────────────
-function renderReport() {
+function renderReport({ final = false } = {}) {
   const g = globalStats()
   const f = faultStats()
+  if (!final && !state.finishedAt && g.done !== g.total) {
+    showToast(`请完成全部检查，或等待训练计时结束后生成成绩单（当前 ${g.done}/${g.total}）`)
+    return
+  }
   const issues = []
   const unfinished = []
   INSPECTION_ROUTES.forEach((route) => {
@@ -633,7 +680,9 @@ function renderReport() {
   })
   $('report-sub').textContent = ` · ${INSPECTION_META.locomotive} · ${state.sessionId}`
   $('report-note').innerHTML =
-    `检查人：${state.operator} · 开始时间：${state.startTime}<br>${INSPECTION_META.disclaimer}`
+    `检查人：${state.operator} · 开始时间：${state.startTime}` +
+    (state.finishedAt ? ` · 结束时间：${state.finishedAt} · ${state.finishReason}` : '') +
+    `<br>${INSPECTION_META.disclaimer}`
 
   const score = computeScore({
     routes: INSPECTION_ROUTES,
@@ -882,10 +931,15 @@ function init() {
 
   const restored = loadState()
   if (!state.sessionId) {
-    state.sessionId = `JC${Date.now().toString().slice(-8)}`
-    state.startTime = formatNow()
+    resetState()
+  } else if (!state.deadlineAt) {
+    // 旧版本本地存档没有计时字段，从本次打开起补齐一轮完整训练时限。
+    state.deadlineAt = Date.now() + SESSION_LIMIT_SECONDS * 1000
     saveState()
   }
+  updateSessionTimer()
+  clearInterval(sessionTimer)
+  sessionTimer = setInterval(updateSessionTimer, 1000)
   // 恢复时定位到第一个未完成的阶段（状态机起始位置）
   let firstPending = 0
   for (let i = 0; i < INSPECTION_ROUTES.length; i += 1) {
@@ -917,6 +971,7 @@ function init() {
     currentRouteIndex = 0
     scene?.resetMarkers?.()
     $('report-mask').style.display = 'none'
+    updateSessionTimer()
     renderRouteList(); renderRouteDetail(); refreshProgress()
     showToast('检查记录已清空')
   })
