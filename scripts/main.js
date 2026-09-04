@@ -55,6 +55,7 @@ let pendingMarker = null     // 待判定的故障标记
 let preInspectMode = 'scene' // 进入检视前的模式（退出时返回）
 let contextItemId = null     // 漫游中当前靠近/正在检视的部件，只在右侧展示它的要点
 let sessionTimer = null
+let landscapeRequest = null
 
 // 检查流程显式状态机（skill 约束 1）：阶段推进 + 完成判定
 const flow = createInspectionFlow(INSPECTION_ROUTES, {
@@ -907,18 +908,61 @@ function initVirtualButtons() {
   })
 }
 
+function isMobileTrainingDevice() {
+  return document.body.classList.contains('mobile-controls-enabled')
+}
+
+function requestMobileLandscape() {
+  if (!isMobileTrainingDevice()) return Promise.resolve(false)
+  if (landscapeRequest) return landscapeRequest
+  landscapeRequest = (async () => {
+    let fullscreenReady = Boolean(document.fullscreenElement)
+    try {
+      if (!fullscreenReady && document.documentElement.requestFullscreen) {
+        await document.documentElement.requestFullscreen({ navigationUI: 'hide' })
+        fullscreenReady = Boolean(document.fullscreenElement)
+      }
+    } catch {
+      // iOS Safari 及部分内嵌浏览器禁止网页主动全屏；仍继续尝试横屏锁定。
+    }
+    try {
+      await screen.orientation?.lock?.('landscape')
+      return true
+    } catch {
+      return fullscreenReady
+    }
+  })()
+  landscapeRequest.finally(() => { landscapeRequest = null })
+  return landscapeRequest
+}
+
 function initMobileFullscreen() {
   const button = $('mobile-fullscreen')
   if (!button) return
-  button.addEventListener('click', async () => {
-    try {
-      if (!document.fullscreenElement) await document.documentElement.requestFullscreen?.()
-      else await document.exitFullscreen?.()
-      if (screen.orientation?.lock && !document.fullscreenElement) return
-      await screen.orientation?.lock?.('landscape').catch(() => {})
-    } catch {
-      showToast('当前浏览器未允许全屏，请使用浏览器菜单进入全屏')
-    }
+  if (!isMobileTrainingDevice()) return
+
+  // 支持横屏锁定的浏览器需要用户手势：首个触摸会自动请求，无需额外点全屏键。
+  document.addEventListener('pointerdown', () => { requestMobileLandscape() }, { once: true, capture: true })
+  button.addEventListener('click', () => { requestMobileLandscape() })
+
+  // 允许的浏览器会直接锁定；被策略拦截时保持竖屏遮罩，首个触摸时会再次发起请求。
+  requestMobileLandscape()
+}
+
+function initMobileExit() {
+  const button = $('mobile-exit')
+  if (!button) return
+  button.addEventListener('click', () => {
+    scene?.releasePlayerLock?.()
+    try { window.parent?.postMessage({ type: 'hxd3d-inspection-close' }, '*') } catch {}
+    const exitFullscreen = document.exitFullscreen?.()
+    exitFullscreen?.catch(() => {})
+    // App/WebView 可关闭本页；普通浏览器基于安全策略不可强制关闭非脚本打开的标签。
+    window.close()
+    window.setTimeout(() => {
+      if (!window.closed && window.history.length > 1) window.history.back()
+      else if (!window.closed) window.location.replace('about:blank')
+    }, 120)
   })
 }
 
@@ -1027,6 +1071,7 @@ function init() {
   initVirtualJoystick()
   initVirtualButtons()
   initMobileFullscreen()
+  initMobileExit()
 
   scene = createInspectionScene($('three-host'), {
     onProgress: (r) => {
