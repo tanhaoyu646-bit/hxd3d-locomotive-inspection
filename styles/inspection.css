@@ -530,9 +530,8 @@ button:focus-visible { outline: 2px solid #78c9ff; outline-offset: 2px; }
 .vbtn-interact { border-color: rgba(255, 179, 64, .55); color: #ffcf85; }
 .vbtn-interact.active { border-color: #ffb340; box-shadow: 0 0 24px rgba(255, 179, 64, .5); }
 
-.mobile-rotate-message, .mobile-fullscreen, .mobile-exit { display: none; }
-body.mobile-controls-enabled .mobile-fullscreen,
-body.mobile-controls-enabled .mobile-exit {
+.mobile-entry, .mobile-rotate-message, .mobile-exit { display: none; }
+body.mobile-controls-enabled.mobile-training-started .mobile-exit {
   position: absolute; top: calc(8px + env(safe-area-inset-top, 0px));
   z-index: 72;
   display: grid; place-items: center; width: 38px; height: 38px;
@@ -540,12 +539,30 @@ body.mobile-controls-enabled .mobile-exit {
   color: #dcefff; background: rgba(5,29,53,.76); font-size: 20px;
   touch-action: manipulation;
 }
-body.mobile-controls-enabled .mobile-exit {
+body.mobile-controls-enabled.mobile-training-started .mobile-exit {
   right: calc(10px + env(safe-area-inset-right, 0px));
   border-color: rgba(255, 150, 150, .5); color: #ffd0d0; font-size: 26px; line-height: 1;
 }
-body.mobile-controls-enabled .mobile-fullscreen {
-  right: calc(56px + env(safe-area-inset-right, 0px));
+body.mobile-controls-enabled .mobile-entry:not([hidden]) {
+  position: fixed; inset: 0; z-index: 210;
+  display: grid; place-items: center;
+  padding: max(20px, env(safe-area-inset-top, 0px)) max(20px, env(safe-area-inset-right, 0px)) max(20px, env(safe-area-inset-bottom, 0px)) max(20px, env(safe-area-inset-left, 0px));
+  color: #e9f6ff;
+  background: radial-gradient(circle at 50% 42%, rgba(20, 73, 111, .94), rgba(3, 15, 28, .98));
+}
+body.mobile-controls-enabled .mobile-entry > div {
+  display: grid; justify-items: center; gap: 11px;
+  width: min(360px, 88vw); padding: 24px;
+  border: 1px solid rgba(169, 220, 255, .25); border-radius: 20px;
+  background: rgba(5, 29, 53, .9); box-shadow: 0 24px 70px rgba(0, 0, 0, .4);
+  text-align: center;
+}
+body.mobile-controls-enabled .mobile-entry b { font-size: 22px; }
+body.mobile-controls-enabled .mobile-entry span { color: #a9cde7; font-size: 13px; }
+body.mobile-controls-enabled .mobile-entry button {
+  min-width: 150px; margin-top: 5px; padding: 12px 20px;
+  border: 0; border-radius: 999px; color: #052239; background: #81cff8;
+  font: 800 16px/1 inherit;
 }
 
 /* ═══════════════ 部件检视浮窗 ═══════════════ */
@@ -829,10 +846,10 @@ body.mobile-controls-enabled .touch-controls {
 }
 
 @media (orientation: portrait) {
-  body.mobile-controls-enabled .mobile-rotate-message {
+  body.mobile-controls-enabled.mobile-training-started .mobile-rotate-message {
     position: fixed; inset: 0; z-index: 200; display: grid; place-items: center;
     color: #dcefff; background: rgba(3,15,28,.96); font-size: 18px; letter-spacing: .12em;
   }
   /* 竖屏提示不能遮住退出入口。 */
-  body.mobile-controls-enabled .mobile-exit { z-index: 201; }
+  body.mobile-controls-enabled.mobile-training-started .mobile-exit { z-index: 201; }
 }

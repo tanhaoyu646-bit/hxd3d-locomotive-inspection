@@ -12,9 +12,9 @@ export const PLAYER_CONFIG = Object.freeze({
   acceleration: 16,
   deceleration: 14,
   groundY: 0,
-  // 集成版机车长23m；初始站位 7m 外（侧后），保持车体在视野中心，又方便走近
-  spawnSideDistance: 7,
-  spawnLongitudinalOffsetRatio: 0.0,
+  // 从车体侧面检查站位开始，避免在车钩正前方直冲碰撞体而产生“卡死”感。
+  spawnSideDistance: 4.2,
+  spawnLongitudinalOffsetRatio: 0.26,
   initialLookHeightRatio: 0.24,
   maxDeltaTime: 0.05,
 })

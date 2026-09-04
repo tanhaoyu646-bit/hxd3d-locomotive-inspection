@@ -311,6 +311,11 @@ export class LocomotiveCollisionSystem {
     const height = ctx.eyeHeight ?? this.standingHeight
     this._resolved.copy(current)
     this._resolved.y = desired.y
+    // 旧存档、帧间状态或蹲起切换可能让玩家起点落入代理内部；先推出再继续解算，
+    // 否则两轴同时被判定阻挡时会表现为完全卡死。
+    this.depenetrate(this._resolved, height)
+    const baseX = this._resolved.x
+    const baseZ = this._resolved.z
 
     // 目标点无碰撞 → 直接通过（最常见路径，快速返回）
     if (!this._hitAny(desired.x, this._resolved.y, desired.z, height)) {
@@ -320,7 +325,7 @@ export class LocomotiveCollisionSystem {
     }
 
     // 试 X 轴单独移动（沿 Z 墙滑动）
-    if (!this._hitAny(desired.x, this._resolved.y, current.z, height)) {
+    if (!this._hitAny(desired.x, this._resolved.y, baseZ, height)) {
       this._resolved.x = desired.x
     }
     // 试 Z 轴单独移动（在已确定的 X 基础上）
@@ -331,8 +336,8 @@ export class LocomotiveCollisionSystem {
 
     // 角点仍被阻挡：原地不动，并推出已穿透的部分
     if (this._hitAny(this._resolved.x, this._resolved.y, this._resolved.z, height)) {
-      this._resolved.x = current.x
-      this._resolved.z = current.z
+      this._resolved.x = baseX
+      this._resolved.z = baseZ
     }
     return this._resolved
   }

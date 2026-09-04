@@ -56,6 +56,7 @@ let preInspectMode = 'scene' // 进入检视前的模式（退出时返回）
 let contextItemId = null     // 漫游中当前靠近/正在检视的部件，只在右侧展示它的要点
 let sessionTimer = null
 let landscapeRequest = null
+let roamHintTimer = null
 
 // 检查流程显式状态机（skill 约束 1）：阶段推进 + 完成判定
 const flow = createInspectionFlow(INSPECTION_ROUTES, {
@@ -393,7 +394,7 @@ function showToast(msg) {
 }
 
 // ───────────────────────── 模式 ─────────────────────────
-function setMode(mode) {
+function setMode(mode, { showRoamHint = true } = {}) {
   const app = $('app')
   // 记录进入检视前的模式（用于退出时返回）
   const prevMode = app.classList.contains('mode-roam') ? 'roam'
@@ -402,7 +403,8 @@ function setMode(mode) {
 
   app.classList.remove('mode-scene', 'mode-roam', 'mode-inspect')
   app.classList.add(`mode-${mode}`)
-  $('roam-hint').style.display = mode === 'roam' ? 'block' : 'none'
+  clearTimeout(roamHintTimer)
+  $('roam-hint').style.display = mode === 'roam' && showRoamHint ? 'block' : 'none'
   $('inspect-panel').style.display = mode === 'inspect' ? 'flex' : 'none'
 
   // 先切场景状态（roam 时 enable playerController），再处理鼠标锁定
@@ -414,6 +416,9 @@ function setMode(mode) {
       ? '左摇杆移动 · 右半屏拖拽转视角 · 交互/加速/跳跃/下蹲'
       : 'WASD 移动 · 空格跳跃 · Shift 奔跑 · C 下蹲 · E 交互 · Esc 退出漫游'
     $('touch-controls').style.display = isTouch ? 'block' : 'none'
+    if (showRoamHint) {
+      roamHintTimer = setTimeout(() => { $('roam-hint').style.display = 'none' }, 3000)
+    }
   } else {
     $('touch-controls').style.display = 'none'
     // 非漫游模式（场景/检视）释放鼠标锁定，让用户能点击面板/按钮
@@ -936,17 +941,24 @@ function requestMobileLandscape() {
   return landscapeRequest
 }
 
-function initMobileFullscreen() {
-  const button = $('mobile-fullscreen')
-  if (!button) return
+function initMobileEntry() {
+  const entry = $('mobile-entry')
+  const button = $('mobile-enter')
+  if (!entry || !button) return
+  entry.hidden = true
   if (!isMobileTrainingDevice()) return
+  button.addEventListener('click', async () => {
+    await requestMobileLandscape()
+    entry.hidden = true
+    document.body.classList.add('mobile-training-started')
+    // 训练真正开始后再展示 3 秒操作提示，避免提示在入口页后方提前消失。
+    setMode('roam')
+  })
+}
 
-  // 支持横屏锁定的浏览器需要用户手势：首个触摸会自动请求，无需额外点全屏键。
-  document.addEventListener('pointerdown', () => { requestMobileLandscape() }, { once: true, capture: true })
-  button.addEventListener('click', () => { requestMobileLandscape() })
-
-  // 允许的浏览器会直接锁定；被策略拦截时保持竖屏遮罩，首个触摸时会再次发起请求。
-  requestMobileLandscape()
+function showMobileEntry() {
+  if (!isMobileTrainingDevice()) return
+  $('mobile-entry').hidden = false
 }
 
 function initMobileExit() {
@@ -1070,31 +1082,33 @@ function init() {
 
   initVirtualJoystick()
   initVirtualButtons()
-  initMobileFullscreen()
+  initMobileEntry()
   initMobileExit()
 
   scene = createInspectionScene($('three-host'), {
-    onProgress: (r) => {
-      const p = Math.round(r * 100)
-      $('loading-bar').style.width = `${Math.max(4, p)}%`
-      $('loading-text').textContent = `正在加载三维模型 · ${p}%`
-    },
+    // GitHub Pages 的 GLB 分段传输不总会给出可信总长度；不显示伪进度。
+    onProgress: () => {},
     onModelSource: (s) => {
       modelSourceLabel = s === 'local' ? '本地副本' : '引用孪生平台'
       $('foot-model').textContent = modelSourceLabel
     },
     onLoaded: () => {
       window.__sceneReady = true
-      $('loading').style.display = 'none'
+      $('loading-bar').style.width = '100%'
+      $('loading-text').textContent = '三维模型加载完成 · 100%'
       scene.buildPoints(INSPECTION_ROUTES)
       const pts = scene.getInspectionPoints()
       $('foot-point').textContent = `${pts.length} 个`
       refreshProgress()
       selectRoute(currentRouteIndex, { focus: false })
       if (restored) showToast('已恢复上次未完成的检查记录')
-      // ★ 默认直接进入漫游模式（第一人称视角），点击画面锁定鼠标
-      setMode('roam')
-      showToast('漫游模式：点击画面锁定鼠标 · WASD 移动 · E 检视部件')
+      // 默认进入漫游；移动端先显示横屏入口，再由入口按钮正式开始训练。
+      setMode('roam', { showRoamHint: !isMobileTrainingDevice() })
+      window.setTimeout(() => {
+        $('loading').style.display = 'none'
+        showMobileEntry()
+        if (!isMobileTrainingDevice()) showToast('漫游模式：点击画面锁定鼠标 · WASD 移动 · E 检视部件')
+      }, 180)
     },
     onError: (e) => {
       $('loading-text').textContent = `三维模型加载失败：${e?.message ?? e}`
