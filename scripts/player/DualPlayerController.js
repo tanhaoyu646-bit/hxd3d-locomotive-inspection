@@ -233,9 +233,9 @@ export class DualPlayerController {
     const size = bounds.getSize(new THREE.Vector3())
     const center = bounds.getCenter(new THREE.Vector3())
     const spawn = new THREE.Vector3(
-      bounds.max.x + this.config.spawnSideDistance,
+      center.x + size.x * this.config.spawnLongitudinalOffsetRatio,
       this.config.groundY,
-      center.z + size.z * this.config.spawnLongitudinalOffsetRatio,
+      bounds.max.z + this.config.spawnSideDistance,
     )
     this.player.position.copy(spawn)
     this.player.velocity.set(0, 0, 0)
@@ -243,7 +243,7 @@ export class DualPlayerController {
     this.player.jumpRequested = false
     this._syncCamera()
     const lookHeight = bounds.min.y + Math.min(this.player.eyeHeight, size.y * this.config.initialLookHeightRatio)
-    const lookTarget = new THREE.Vector3(center.x, lookHeight, spawn.z)
+    const lookTarget = new THREE.Vector3(spawn.x, lookHeight, center.z)
     this.camera.lookAt(lookTarget)
     this.camera.updateMatrixWorld(true)
     // 初始化视角

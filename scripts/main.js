@@ -1074,18 +1074,16 @@ function init() {
   initMobileExit()
 
   scene = createInspectionScene($('three-host'), {
-    onProgress: (r) => {
-      const p = Math.round(r * 100)
-      $('loading-bar').style.width = `${Math.max(4, p)}%`
-      $('loading-text').textContent = `正在加载三维模型 · ${p}%`
-    },
+    // GitHub Pages 的 GLB 分段传输不总会给出可信总长度，不能拿它计算百分比。
+    onProgress: () => {},
     onModelSource: (s) => {
       modelSourceLabel = s === 'local' ? '本地副本' : '引用孪生平台'
       $('foot-model').textContent = modelSourceLabel
     },
     onLoaded: () => {
       window.__sceneReady = true
-      $('loading').style.display = 'none'
+      $('loading-bar').style.width = '100%'
+      $('loading-text').textContent = '三维模型加载完成 · 100%'
       scene.buildPoints(INSPECTION_ROUTES)
       const pts = scene.getInspectionPoints()
       $('foot-point').textContent = `${pts.length} 个`
@@ -1095,6 +1093,8 @@ function init() {
       // ★ 默认直接进入漫游模式（第一人称视角），点击画面锁定鼠标
       setMode('roam')
       showToast('漫游模式：点击画面锁定鼠标 · WASD 移动 · E 检视部件')
+      // 让完成态在画面中保留一瞬，再进入系统，避免显示不可信的中间百分比。
+      window.setTimeout(() => { $('loading').style.display = 'none' }, 180)
     },
     onError: (e) => {
       $('loading-text').textContent = `三维模型加载失败：${e?.message ?? e}`
