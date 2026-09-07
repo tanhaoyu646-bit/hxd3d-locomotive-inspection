@@ -545,8 +545,8 @@ export function createInspectionScene(container, callbacks = {}) {
       // 准星方向远比距离重要；距离只在近似同向的候选之间消歧。
       // HUD 与实际按键都优先选择“已站到允许站位”的那个零部件，
       // 避免相邻轴箱/弹簧的目标抢占后又提示“请走到车体侧站位”。
-      const inZone = p.isPartPoint && partFSM
-        ? partFSM.evaluate(p, ctx, { skipOcclusion: true }).conditions.some((c) => c.code === 'inZone' && c.met)
+      const inZone = point.isPartPoint && partFSM
+        ? partFSM.evaluate(point, ctx, { skipOcclusion: true }).conditions.some((c) => c.code === 'inZone' && c.met)
         : false
       const score = aim * 10 - horizontalDistance * 0.12 - spatialDistance * 0.015 + (inZone ? 12 : 0)
       if (!best || score > best.score) {
