@@ -6,8 +6,8 @@ export const SCENARIO_FAULT_POINT_IDS = new Set([
   'coupler-1', 'coupler-5', 'coupler-6',
   'signal-1', 'signal-5', 'signal-6', 'signal-7',
   'rg-axle-1-left-wheelset', 'rg-axle-2-right-axlebox',
-  'rg-axle-3-left-primarySpring', 'rg-front-right-damper',
-  'rg-front-left-pipeFastener', 'rg-rear-right-sandBox',
+  'rg-axle-3-left-primarySpring', 'rg-axle-5-right-primarySpring', 'rg-front-right-damper',
+  'rg-front-left-pipeFastener', 'rg-rear-right-sandBox', 'rg-front-left-sandBox',
   'rg-front-left-motorGearbox', 'rg-axle-5-right-brakeUnit',
   'rg-end-i-pilot', 'rg-undercar-pipeline',
 ])

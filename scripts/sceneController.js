@@ -27,7 +27,6 @@ import {
   buildPartPoints,
   paintFaultMarkersOnModel,
   paintFaultMarkersOnPart,
-  createPointMarker,
   regionCenter,
   FAULT_KEYWORDS,
 } from './partInspection.js'
@@ -160,6 +159,7 @@ export function createInspectionScene(container, callbacks = {}) {
   let nearestPoint = null       // 漫游时最近的检查点
   let runningGearRoute = null   // 走行部路由（零部件检查点归属）
   let nearKey = null            // 当前 near-hint 关键字，避免每帧重复回调 UI
+  let roamTapStart = null       // 漫游点按：区分点击检查点与拖拽转向
   const clock = new THREE.Clock()
   const gltfLoader = new GLTFLoader()
   const raycaster = new THREE.Raycaster()
@@ -314,12 +314,114 @@ export function createInspectionScene(container, callbacks = {}) {
     }, { duration: 900 })
   }
 
+  // ── 检查点标记（InstancedMesh）──
+  // 原实现：每个检查点一个 Group（核心球 + 光环），89 个点 = 178 个网格 +
+  // 178 份独立材质 → 每帧 178 次绘制调用（占全部 draw call 的一半以上）。
+  // 现改为两个 InstancedMesh（核心球 / 光环各一个），每帧仅 2 次绘制调用；
+  // 几何尺寸、颜色、脉动缩放、光环朝向相机等行为与原实现保持一致。
+  let markerCoreMesh = null
+  let markerRingMesh = null
+  let markerPickMesh = null
+  const MARKER_COLORS = {
+    normal: new THREE.Color(0x38a8ff),
+    near: new THREE.Color(0x7cc8ff),
+    found: new THREE.Color(0x5cff9c),
+  }
+  /** 复用临时对象，避免每帧产生 GC 抖动 */
+  const _markerM4 = new THREE.Matrix4()
+  const _markerQ = new THREE.Quaternion()
+  const _markerIdQ = new THREE.Quaternion()
+  const _markerScale = new THREE.Vector3()
+  const _markerUp = new THREE.Vector3(0, 1, 0)
+
+  function disposeMarkerInstances() {
+    for (const m of [markerCoreMesh, markerRingMesh, markerPickMesh]) {
+      if (!m) continue
+      pointGroup.remove(m)
+      m.geometry?.dispose?.()
+      m.material?.dispose?.()
+      m.dispose?.()
+    }
+    markerCoreMesh = null
+    markerRingMesh = null
+    markerPickMesh = null
+  }
+
+  function buildMarkerInstances() {
+    disposeMarkerInstances()
+    const count = inspectionPoints.length
+    if (!count) return
+    // 几何与材质参数沿用原 createPointMarker：核心球 r=0.028，光环 0.05~0.07
+    const coreGeo = new THREE.SphereGeometry(0.028, 12, 12)
+    const coreMat = new THREE.MeshBasicMaterial({
+      color: 0xffffff, transparent: true, opacity: 0.85, depthWrite: false,
+    })
+    const ringGeo = new THREE.RingGeometry(0.05, 0.07, 20)
+    const ringMat = new THREE.MeshBasicMaterial({
+      color: 0xffffff, transparent: true, opacity: 0.42, side: THREE.DoubleSide, depthWrite: false,
+    })
+    // 只用于射线拾取的透明大命中面。视觉仍是小光点，手机不必精确点到 0.03m 的球心。
+    const pickGeo = new THREE.SphereGeometry(0.15, 10, 10)
+    const pickMat = new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.001, depthWrite: false })
+    markerCoreMesh = new THREE.InstancedMesh(coreGeo, coreMat, count)
+    markerRingMesh = new THREE.InstancedMesh(ringGeo, ringMat, count)
+    markerPickMesh = new THREE.InstancedMesh(pickGeo, pickMat, count)
+    for (const m of [markerCoreMesh, markerRingMesh, markerPickMesh]) {
+      m.instanceMatrix.setUsage(THREE.DynamicDrawUsage)
+      // 实例矩阵每帧变化，包围球不可靠 → 关闭视锥剔除，避免标记被误剔除
+      m.frustumCulled = false
+      pointGroup.add(m)
+    }
+    for (let i = 0; i < count; i++) {
+      markerCoreMesh.setColorAt(i, MARKER_COLORS.normal)
+      markerRingMesh.setColorAt(i, MARKER_COLORS.normal)
+    }
+    updateMarkerInstances(0)
+  }
+
+  /** 每帧更新实例矩阵（位置 / 脉动缩放 / 光环朝向相机）与实例颜色 */
+  function updateMarkerInstances(wave) {
+    if (!markerCoreMesh || !markerRingMesh || !markerPickMesh) return
+    const count = inspectionPoints.length
+    for (let i = 0; i < count; i++) {
+      const p = inspectionPoints[i]
+      const isNear = p === nearestPoint
+      const s = isNear ? 1.25 + wave * 0.18 : 1 + wave * 0.1
+      _markerScale.set(s, s, s)
+      const pos = p.position
+      // 核心球：仅缩放
+      _markerM4.compose(pos, _markerIdQ, _markerScale)
+      markerCoreMesh.setMatrixAt(i, _markerM4)
+      // 光环：始终面向相机（等效于原实现 ring.lookAt(camera.position)）
+      _markerM4.lookAt(camera.position, pos, _markerUp)
+      _markerQ.setFromRotationMatrix(_markerM4)
+      _markerM4.compose(pos, _markerQ, _markerScale)
+      markerRingMesh.setMatrixAt(i, _markerM4)
+      // 拾取代理固定略大于显示光点，不随脉动改变可点击范围。
+      _markerScale.set(1.35, 1.35, 1.35)
+      _markerM4.compose(pos, _markerIdQ, _markerScale)
+      markerPickMesh.setMatrixAt(i, _markerM4)
+      // 颜色：已发现故障标记→绿；最近点→亮蓝；其余→常规蓝
+      const col = p.markers?.some?.((m) => m.found)
+        ? MARKER_COLORS.found
+        : (isNear ? MARKER_COLORS.near : MARKER_COLORS.normal)
+      markerCoreMesh.setColorAt(i, col)
+      markerRingMesh.setColorAt(i, col)
+    }
+    markerCoreMesh.instanceMatrix.needsUpdate = true
+    markerRingMesh.instanceMatrix.needsUpdate = true
+    markerPickMesh.instanceMatrix.needsUpdate = true
+    if (markerCoreMesh.instanceColor) markerCoreMesh.instanceColor.needsUpdate = true
+    if (markerRingMesh.instanceColor) markerRingMesh.instanceColor.needsUpdate = true
+  }
+
   // ── 检查点 ──
   function buildPoints(routes) {
     // 清理旧的
     while (pointGroup.children.length) {
       const c = pointGroup.children.pop()
       c.traverse?.((o) => { o.geometry?.dispose?.(); o.material?.dispose?.() })
+      if (c.isInstancedMesh) c.dispose?.()
     }
     while (markerGroup.children.length) {
       const c = markerGroup.children.pop()
@@ -341,7 +443,7 @@ export function createInspectionScene(container, callbacks = {}) {
     // ── 环节入口点：升弓电气检查（车外安全确认）──
     // 车顶高压设备在出勤整备中无法登顶检视（需停电验电挂地线），原 roof 环节
     // 5 个子项均无三维点位、不可走到交互。这里在「机车外方（车侧平台位）」放一个
-    // 地面交互点：站上去、面向车体（车顶方向）、按 E / 手机交互键即可确认。
+    // 地面交互点：站上去、面向车体后先确认安全条件；受电弓等项目仍须逐项检视。
     routeEntryPoints = []
     const roofRoute = routes.find((r) => r.id === 'roof') ?? null
     if (roofRoute && modelBounds) {
@@ -369,15 +471,10 @@ export function createInspectionScene(container, callbacks = {}) {
       }
       routeEntryPoints.push(entry)
       inspectionPoints.push(entry)
-      const marker = createPointMarker(entry, inspectionPoints.length - 1)
-      entry.node = marker
     }
 
-    inspectionPoints.forEach((p, i) => {
-      const marker = createPointMarker(p, i)
-      pointGroup.add(marker)
-      p.node = marker
-    })
+    // 检查点标记改为两个 InstancedMesh（178 次绘制调用 → 2 次）
+    buildMarkerInstances()
     // 在漫游时就可看到极小的假设故障符号，但只布置在本轮指定的独立零部件上。
     inspectionPoints.filter((p) => p.hasScenarioFault).forEach(activatePointFaults)
     return inspectionPoints
@@ -788,6 +885,36 @@ export function createInspectionScene(container, callbacks = {}) {
     callbacks.onInspectEnter?.(p)
   }
 
+  /** 直接点三维光点：点击即代表已对准，但仍必须处于可达站位，避免远距离跳转。 */
+  function handlePointTap(point) {
+    if (!point || mode !== 'roam' || !playerController) return
+    const ctx = getPlayerContext()
+    const target = point.interactionTarget ?? point.position
+    const distance = Math.hypot(target.x - ctx.position.x, target.z - ctx.position.z)
+    const maxDistance = point.isPartPoint
+      ? (point.part.approach?.maxDistance ?? 3) + 0.65
+      : NEAR_DISTANCE + 0.65
+    if (distance > maxDistance) {
+      callbacks.onToast?.('请先靠近该检查点，再点击进入检视')
+      return
+    }
+    if (point.isRouteEntry && !callbacks.isRouteUnlocked?.(point.routeId)) {
+      callbacks.onToast?.('该环节尚未解锁')
+      return
+    }
+    if (point.isPartPoint) {
+      const ev = partFSM.evaluate(point, ctx)
+      if (!ev.canEnter) {
+        callbacks.onToast?.(ev.unmet[0]?.detail || ev.stageMeta.hint || '请满足检查条件后再交互')
+        return
+      }
+      partFSM.beginInspect(point.part)
+    }
+    setMode('inspect')
+    focusOnPoint(point)
+    callbacks.onInspectEnter?.(point)
+  }
+
   /** 场景中直接检视某检查项（从右侧面板按钮触发） */
   function inspectItem(item, route) {
     const point = inspectionPoints.find((p) => p.id === item?.id)
@@ -809,7 +936,7 @@ export function createInspectionScene(container, callbacks = {}) {
   }
 
   // ── 拾取：点击故障标记 ──
-  renderer.domElement.addEventListener('pointerdown', (event) => {
+  function onInspectPointerDown(event) {
     if (mode !== 'inspect' || !activePoint) return
     const rect = renderer.domElement.getBoundingClientRect()
     pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1
@@ -824,7 +951,30 @@ export function createInspectionScene(container, callbacks = {}) {
       const marker = activePoint.markers.find((m) => m.line === line)
       if (marker && !marker.found) callbacks.onMarkerPick?.(marker, activePoint)
     }
-  })
+  }
+  renderer.domElement.addEventListener('pointerdown', onInspectPointerDown)
+
+  function onRoamPointerDown(event) {
+    if (mode !== 'roam' || event.button > 0 || document.pointerLockElement === renderer.domElement) return
+    roamTapStart = { id: event.pointerId, x: event.clientX, y: event.clientY, time: performance.now() }
+  }
+  function onRoamPointerUp(event) {
+    if (!roamTapStart || roamTapStart.id !== event.pointerId || mode !== 'roam') return
+    const dx = event.clientX - roamTapStart.x
+    const dy = event.clientY - roamTapStart.y
+    const elapsed = performance.now() - roamTapStart.time
+    roamTapStart = null
+    if (dx * dx + dy * dy > 196 || elapsed > 500 || !markerPickMesh) return
+    const rect = renderer.domElement.getBoundingClientRect()
+    pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1
+    pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1
+    raycaster.setFromCamera(pointer, camera)
+    const hit = raycaster.intersectObject(markerPickMesh, false)[0]
+    const point = hit?.instanceId == null ? null : inspectionPoints[hit.instanceId]
+    if (point) handlePointTap(point)
+  }
+  renderer.domElement.addEventListener('pointerdown', onRoamPointerDown)
+  renderer.domElement.addEventListener('pointerup', onRoamPointerUp)
 
   /** 标记判定正确后高亮 */
   function markFound(marker) {
@@ -882,22 +1032,9 @@ export function createInspectionScene(container, callbacks = {}) {
       glowMaterial.opacity = 0.1 + wave * 0.12
       edgeMaterial.opacity = 0.7 + wave * 0.3
     }
-    // 检查点脉动（漫游/场景 8 个点，开销小；仅在可见时更新）
+    // 检查点脉动：InstancedMesh 一次性更新（每帧仅 2 次绘制调用），仅在可见时更新
     const pointsVisible = mode !== 'inspect' || pointGroup.visible
-    if (pointsVisible) {
-      inspectionPoints.forEach((p) => {
-        const node = p.node
-        if (!node) return
-        const isNear = (p === nearestPoint)
-        const s = isNear ? 1.25 + wave * 0.18 : 1 + wave * 0.1
-        node.scale.setScalar(s)
-        if (node.userData.ring) node.userData.ring.lookAt(camera.position)
-        if (node.userData.core) {
-          node.userData.core.material.opacity = isNear ? 1 : 0.85
-          node.userData.core.material.color.setHex(p.markers.some((m) => m.found) ? 0x5cff9c : (isNear ? 0x7cc8ff : 0x38a8ff))
-        }
-      })
-    }
+    if (pointsVisible) updateMarkerInstances(wave)
     renderer.render(scene, camera)
     frameId = requestAnimationFrame(render)
   }
@@ -1016,6 +1153,9 @@ export function createInspectionScene(container, callbacks = {}) {
     ro.disconnect()
     orbitControls.dispose()
     playerController?.dispose()
+    renderer.domElement.removeEventListener('pointerdown', onInspectPointerDown)
+    renderer.domElement.removeEventListener('pointerdown', onRoamPointerDown)
+    renderer.domElement.removeEventListener('pointerup', onRoamPointerUp)
     hideHighlight()
     renderer.renderLists.dispose()
     renderer.dispose()

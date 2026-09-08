@@ -212,7 +212,7 @@ export const PART_TYPE_DEFS = Object.freeze({
     occluders: ['wheelset', 'frame'],
     judge: {
       pass: '螺旋弹簧无裂纹、折断、压溃，橡胶垫无老化开裂，上下支座无松动',
-      faults: [{ faultType: 'crack', count: 1 }],
+      faults: [{ faultType: 'crack', count: 1 }, { faultType: 'loose-bolt', count: 1 }],
       abnormal: ['一系弹簧折断', '橡胶垫老化开裂', '弹簧支座松动'],
     },
   },

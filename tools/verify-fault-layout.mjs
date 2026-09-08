@@ -22,7 +22,7 @@ const gltf = await new Promise((resolve, reject) => new GLTFLoader().parse(data,
 const root = gltf.scene
 root.updateMatrixWorld(true)
 const bounds = new THREE.Box3().setFromObject(root)
-const active = INSPECTION_ROUTES.filter((route) => ['bogie', 'coupler', 'signal'].includes(route.id))
+const active = INSPECTION_ROUTES.filter((route) => ['roof', 'bogie', 'coupler', 'signal'].includes(route.id))
 const excluded = new Set(getRunningGearItemIds())
 const regionPoints = buildInspectionPoints(active, bounds, { excludeItems: excluded })
 const bogieRoute = active.find((route) => route.id === 'bogie')

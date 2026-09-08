@@ -134,7 +134,11 @@ export const INSPECTION_ROUTES = [
         ],
         standard: '瓷件无裂纹破损、无放电痕迹，表面清洁，连接螺栓紧固无松动',
         risk: '绝缘子破损会造成车顶高压接地，导致跳闸甚至设备烧损',
-        // 出勤检查时车顶电器设备实际看不见（需登顶且停电），不做三维检视交互
+        fault: {
+          // 仅作为外部望远检视锚点；相机始终停在车外，不进入车体。
+          region: { u: [0.48, 0.57], v: [0.78, 0.87], w: [0.42, 0.58] },
+          exterior: 'top', partType: 'electrical', faults: [],
+        },
       },
       {
         id: 'roof-4',
@@ -148,7 +152,10 @@ export const INSPECTION_ROUTES = [
         ],
         standard: '外观完好无损伤，各部无放电痕迹；开关位置与运行要求一致',
         risk: '主断路器或避雷器损坏会造成高压故障，影响供电与行车安全',
-        // 同上：车顶设备在出勤整备中不做三维检视交互
+        fault: {
+          region: { u: [0.58, 0.70], v: [0.76, 0.88], w: [0.42, 0.58] },
+          exterior: 'top', partType: 'electrical', faults: [],
+        },
       },
       {
         id: 'roof-5',
@@ -162,6 +169,10 @@ export const INSPECTION_ROUTES = [
         ],
         standard: '母线连接紧固无过热变色，防松标记无错位，车顶无遗留异物',
         risk: '遗留异物或螺栓松动可能在运行中脱落，造成设备损坏或侵限',
+        fault: {
+          region: { u: [0.34, 0.72], v: [0.88, 0.94], w: [0.42, 0.58] },
+          exterior: 'top', partType: 'electrical', faults: [],
+        },
       },
     ],
   },

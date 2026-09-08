@@ -1,0 +1,9 @@
+{
+  "name": "HXD3D 机车检查作业",
+  "short_name": "机车检查",
+  "display": "standalone",
+  "start_url": "./",
+  "background_color": "#06111d",
+  "theme_color": "#06111d",
+  "orientation": "landscape"
+}

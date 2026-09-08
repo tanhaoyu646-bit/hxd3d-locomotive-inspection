@@ -337,7 +337,8 @@ export function paintFaultMarkersOnModel(modelRoot, point, opts = {}) {
     }
 
     // 拾取代理（略大、透明），便于点击
-    const proxyGeo = new THREE.SphereGeometry(0.085, 8, 8)
+    // 视觉符号仍保持细小，命中代理扩大到 14cm，便于手机单指点按。
+    const proxyGeo = new THREE.SphereGeometry(0.14, 8, 8)
     const proxyMat = new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false })
     const proxy = new THREE.Mesh(proxyGeo, proxyMat)
     proxy.position.copy(surfacePoint)
@@ -435,7 +436,7 @@ export function paintFaultMarkersOnPart(modelRoot, point, opts = {}) {
     }
 
     const proxy = new THREE.Mesh(
-      new THREE.SphereGeometry(0.085, 8, 8),
+      new THREE.SphereGeometry(0.14, 8, 8),
       new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false }),
     )
     proxy.position.copy(surfacePoint)

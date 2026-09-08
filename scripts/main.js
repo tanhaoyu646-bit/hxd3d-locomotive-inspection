@@ -21,12 +21,13 @@ import { getRunningGearItemIds, getRunningGearParts } from './parts/runningGearP
 import { createInspectionFlow } from './inspectionFlow.js'
 import { computeScore } from './scoring.js'
 
-const STORAGE_KEY = 'hxd3d-inspection-underframe-record-v2'
+const STORAGE_PREFIX = 'hxd3d-inspection-session-v3'
+const PROFILE_KEY = 'hxd3d-inspection-last-profile-v1'
 /** 当前开放的车外检查项目合计约 26 分钟，按 30 分钟作为一轮训练时限。 */
 const SESSION_LIMIT_SECONDS = 30 * 60
 const RING_LENGTH = 125.6
 /** 当前只开放可在车外完成的检查：走行部、车钩连接、端部外观与信号。 */
-const ACTIVE_ROUTE_IDS = new Set(['bogie', 'coupler', 'signal'])
+const ACTIVE_ROUTE_IDS = new Set(['roof', 'bogie', 'coupler', 'signal'])
 const INSPECTION_ROUTES = ALL_INSPECTION_ROUTES.filter((route) => ACTIVE_ROUTE_IDS.has(route.id))
 const TOTAL_ITEM_COUNT = INSPECTION_ROUTES.reduce((sum, route) => sum + route.items.length, 0)
 
@@ -67,7 +68,14 @@ const flow = createInspectionFlow(INSPECTION_ROUTES, {
 // ───────────────────────── 存档 ─────────────────────────
 function loadState() {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY)
+    const profile = JSON.parse(localStorage.getItem(PROFILE_KEY) || 'null')
+    if (profile?.id) {
+      state.profile = { ...state.profile, ...profile }
+      state.operator = profile.name || state.operator
+    }
+    const userKey = encodeURIComponent(state.profile?.id || 'guest')
+    const sessionId = localStorage.getItem(`${STORAGE_PREFIX}:latest:${userKey}`)
+    const raw = sessionId ? localStorage.getItem(`${STORAGE_PREFIX}:${userKey}:${sessionId}`) : null
     if (!raw) return false
     const parsed = JSON.parse(raw)
     if (parsed && typeof parsed.items === 'object') { state = { ...state, ...parsed }; return true }
@@ -75,7 +83,13 @@ function loadState() {
   return false
 }
 function saveState() {
-  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)) } catch {}
+  try {
+    const profile = state.profile ?? {}
+    const userKey = encodeURIComponent(profile.id || 'guest')
+    localStorage.setItem(`${STORAGE_PREFIX}:${userKey}:${state.sessionId}`, JSON.stringify(state))
+    localStorage.setItem(`${STORAGE_PREFIX}:latest:${userKey}`, state.sessionId)
+    if (profile.id) localStorage.setItem(PROFILE_KEY, JSON.stringify(profile))
+  } catch {}
 }
 function resetState() {
   state = {
@@ -437,6 +451,7 @@ function setMode(mode) {
     }
   } else {
     $('touch-controls').style.display = 'none'
+    $('vbtn-interact')?.classList.remove('ready')
     // 非漫游模式（场景/检视）释放鼠标锁定，让用户能点击面板/按钮
     scene?.releasePlayerLock?.()
   }
@@ -474,13 +489,13 @@ function onInspectEnter(point) {
     ref.style.display = 'none'
   }
   if (point.isRouteEntry) {
-    // 升弓电气检查（车外安全确认）：无三维故障标记，直接做安全确认
+    // 升弓电气检查先确认外部安全条件；受电弓和车顶设备仍须逐项进入三维检视。
     $('inspect-title').textContent = '升弓电气检查（车外安全确认）'
     $('inspect-hint').textContent =
       '确认：①车顶无人 ②接触网无异物 ③接地线已挂 ④受电弓及车顶高压设备状态良好'
     $('inspect-wait').style.display = 'none'
     $('fault-report-form').style.display = 'none'
-    $('inspect-progress').textContent = '安全确认'
+    $('inspect-progress').textContent = state.roofSafetyConfirmed ? '已确认' : '待确认'
     const st = $('inspect-status')
     st.textContent = '请完成车外安全确认'
     st.className = 'inspect-status'
@@ -680,14 +695,11 @@ function decideFromInspect(action) {
     showToast('本部件已上报故障，不能再确认未见异常')
     return
   }
-  // 环节入口点（升弓电气检查车外点）：一次性确认整个 roof 环节（roof-1~5）
+  // 环节入口点只确认车外安全条件，不能替代受电弓及车顶设备的逐项检查。
   if (activePoint.isRouteEntry) {
-    const route = activePoint.route
-    route.items.forEach((it) => {
-      state.items[it.id] = { ...(state.items[it.id] ?? {}), status: action, time: formatNow() }
-    })
+    state.roofSafetyConfirmed = action === 'ok'
     saveState()
-    showToast(action === 'ok' ? '已确认升弓电气检查合格' : '已登记升弓电气检查异常')
+    showToast(action === 'ok' ? '已确认车外安全条件，请逐项检视受电弓和车顶设备' : '请按作业标准处理车外安全条件后再检查')
     refreshProgress(); renderRouteList(); renderRouteDetail()
     exitInspect()
     maybeFinishTraining()
@@ -1012,12 +1024,8 @@ function initMobileFullscreen() {
   if (!button) return
   if (!isMobileTrainingDevice()) return
 
-  // 支持横屏锁定的浏览器需要用户手势：首个触摸会自动请求，无需额外点全屏键。
-  document.addEventListener('pointerdown', () => { requestMobileLandscape() }, { once: true, capture: true })
+  // 必须由“进入训练”或全屏按钮这一类明确手势触发；表单输入阶段不抢占横屏。
   button.addEventListener('click', () => { requestMobileLandscape() })
-
-  // 允许的浏览器会直接锁定；被策略拦截时保持竖屏遮罩，首个触摸时会再次发起请求。
-  requestMobileLandscape()
 }
 
 function initMobileExit() {
@@ -1038,6 +1046,8 @@ function initMobileExit() {
 }
 
 function openSessionGate() {
+  document.body.classList.remove('session-running')
+  document.body.classList.add('session-entry')
   const p = state.profile ?? {}
   $('session-name').value = p.name ?? ''
   $('session-id').value = p.id ?? ''
@@ -1055,6 +1065,10 @@ function beginSession() {
   if (!name || !id) { $('session-tip').textContent = '请填写学员姓名和工号/学号。'; return }
   state.profile = { name, id, group: $('session-group').value.trim(), device: $('session-device').value, mode: $('session-mode').value }
   state.operator = name
+  // 仍在 click 用户手势栈内请求横屏；iPhone Safari 若拒绝锁定，会保留旋转提示，不阻塞登录。
+  document.body.classList.remove('session-entry')
+  document.body.classList.add('session-running')
+  requestMobileLandscape()
   resetState()
   flow.setCurrent(0)
   currentRouteIndex = 0
@@ -1070,6 +1084,7 @@ function init() {
   const isCoarse = matchMedia('(pointer: coarse)').matches || 'ontouchstart' in window
     || new URLSearchParams(location.search).get('mobile') === '1'
   if (isCoarse) document.body.classList.add('mobile-controls-enabled')
+  document.body.classList.add('session-entry')
 
   const restored = loadState()
   if (!state.sessionId) {
@@ -1220,24 +1235,12 @@ function init() {
     onPointerLockError: () => showToast('鼠标锁定失败，请点击画面重试'),
     onNearPoint: (desc) => {
       const hint = $('near-hint')
-      if (!desc) { hint.style.display = 'none'; return }
-      hint.style.display = 'block'
-      hint.classList.toggle('can-enter', Boolean(desc.canEnter))
-      // 漫游时不提前展示部件名称与交互条件，避免挡住零部件；名称只在实际进入检视后显示。
-      const name = '可交互检查点'
-      if (desc.kind === 'part') {
-        $('near-hint-text').textContent = `${name} · ${desc.distance.toFixed(1)} m`
-        const sub = hint.querySelector('small')
-        if (sub) {
-          sub.textContent = desc.canEnter
-            ? '按 E / 交互键进入检视'
-            : '靠近并正对检查点后可交互'
-        }
-      } else {
-        $('near-hint-text').textContent = `${name} · ${(desc.distance ?? 0).toFixed(1)} m`
-        const sub = hint.querySelector('small')
-        if (sub) sub.textContent = desc.routeEntry ? '按 E / 交互键 · 升弓电气检查' : '按 E / 交互键检视'
-      }
+      // 中央提示框不再占用视野；到位并对准时仅让右侧交互键变为绿色半透明。
+      hint.style.display = 'none'
+      const button = $('vbtn-interact')
+      if (!button) return
+      button.classList.toggle('ready', Boolean(desc?.canEnter))
+      button.querySelector('.vbtn-hint').textContent = desc?.canEnter ? '可检视' : '检查部件'
     },
     onInspectEnter: (point) => {
       // 漫游按 E 进入检视时，sceneController 内部已切到 inspect，
