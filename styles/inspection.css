@@ -100,7 +100,9 @@ button:focus-visible { outline: 2px solid #78c9ff; outline-offset: 2px; }
   border-bottom: 1px solid rgba(48, 131, 205, .52);
   box-shadow: 0 9px 28px rgba(0, 7, 16, .48), inset 0 -1px rgba(27, 114, 207, .25);
   clip-path: polygon(0 0, 100% 0, 100% 89%, 75% 89%, 72.8% 100%, 27.2% 100%, 25% 89%, 0 89%);
+  transition: transform .42s cubic-bezier(.22, .7, .16, 1), opacity .28s ease;
 }
+.app-shell.training-chrome-hidden .system-topbar { transform: translateY(-112%); opacity: 0; pointer-events: none; }
 .system-topbar::before {
   content: ""; position: absolute; left: 24%; right: 24%; bottom: 0; height: 2px;
   background: linear-gradient(90deg, transparent, #258bff, transparent);
@@ -555,6 +557,19 @@ body.mobile-controls-enabled .mobile-exit {
 body.mobile-controls-enabled .mobile-fullscreen {
   right: calc(56px + env(safe-area-inset-right, 0px));
 }
+/* 进入训练后只保留退出键；横屏请求在登录点击时完成，不再常驻占用视野。 */
+body.mobile-controls-enabled.session-running .mobile-fullscreen { display: none !important; }
+
+/* 检视初始态仅显示一个小的“结果”入口；不自动弹出右侧大窗口。 */
+.inspect-result-trigger {
+  position: absolute; right: 18px; top: 92px; z-index: 38;
+  min-width: 108px; min-height: 44px; padding: 7px 11px; border-radius: 7px; cursor: pointer;
+  border: 1px solid rgba(92, 255, 156, .52); color: #d9ffe8;
+  background: linear-gradient(180deg, rgba(16, 76, 57, .84), rgba(5, 36, 28, .9));
+  box-shadow: 0 10px 24px rgba(0, 7, 17, .38); font: inherit; font-size: 11px; letter-spacing: .08em;
+}
+.inspect-result-trigger span { display: block; margin-top: 3px; color: #9ed0b5; font-size: 9px; letter-spacing: .04em; }
+.inspect-result-trigger:active { transform: scale(.96); }
 
 /* ═══════════════ 部件检视浮窗 ═══════════════ */
 .part-viewport-shell {
@@ -815,6 +830,10 @@ body.mobile-controls-enabled .mobile-fullscreen {
     top: 54px; bottom: 12px; right: calc(10px + env(safe-area-inset-right));
     left: auto; width: min(380px, 44vw); height: auto;
     max-height: none;
+  }
+  .inspect-result-trigger {
+    right: calc(12px + env(safe-area-inset-right)); top: 58px;
+    min-width: 96px; min-height: 40px; font-size: 10px;
   }
   /* 虚拟摇杆与按键靠右侧安全区。 */
   .touch-controls .virtual-buttons {

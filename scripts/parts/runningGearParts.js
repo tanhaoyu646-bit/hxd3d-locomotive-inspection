@@ -174,6 +174,8 @@ export const PART_TYPE_DEFS = Object.freeze({
       faults: [
         { faultType: 'tread-scratch', surface: 'tread', count: 1 },
         { faultType: 'tread-peel', surface: 'tread', count: 1 },
+        // 轮辋/外露轮轴部位采用白色不规则裂纹线，和踏面故障分开训练。
+        { faultType: 'crack', count: 1 },
       ],
       abnormal: ['踏面擦伤', '踏面剥离', '轮缘磨耗到限', '轮辋裂纹'],
     },

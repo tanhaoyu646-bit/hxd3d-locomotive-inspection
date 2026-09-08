@@ -59,6 +59,7 @@ let contextItemId = null     // 漫游中当前靠近/正在检视的部件，�
 let sessionTimer = null
 let landscapeRequest = null
 let roamHintShown = false
+let trainingChromeTimer = null
 
 // 检查流程显式状态机（skill 约束 1）：阶段推进 + 完成判定
 const flow = createInspectionFlow(INSPECTION_ROUTES, {
@@ -431,7 +432,9 @@ function setMode(mode) {
   app.classList.remove('mode-scene', 'mode-roam', 'mode-inspect')
   app.classList.add(`mode-${mode}`)
   $('roam-hint').style.display = 'none'
-  $('inspect-panel').style.display = mode === 'inspect' ? 'flex' : 'none'
+  // 检视面板不随进入检视自动展开：仅在发现故障或主动确认检查结果时打开。
+  $('inspect-panel').style.display = 'none'
+  $('inspect-result-trigger').style.display = 'none'
   if (mode !== 'inspect') $('inspect-panel').classList.remove('collapsed')
 
   // 先切场景状态（roam 时 enable playerController），再处理鼠标锁定
@@ -463,6 +466,20 @@ function setInspectPanelCollapsed(collapsed) {
   panel.classList.toggle('collapsed', Boolean(collapsed))
   $('inspect-toggle').textContent = collapsed ? '‹' : '›'
   $('inspect-toggle').setAttribute('aria-label', collapsed ? '展开部件检视' : '收起部件检视')
+}
+
+/** 检视初始阶段不遮挡模型；只有要确认结果或已点到故障时才打开右侧窗口。 */
+function openInspectResultPanel() {
+  if (!activePoint) return
+  $('inspect-result-trigger').style.display = 'none'
+  $('inspect-panel').style.display = 'flex'
+  setInspectPanelCollapsed(false)
+}
+
+function prepareInspectResultTrigger(point) {
+  const trigger = $('inspect-result-trigger')
+  trigger.querySelector('span').textContent = point?.isRouteEntry ? '完成安全确认' : '确认无异常'
+  trigger.style.display = 'grid'
 }
 
 // ───────────────────────── 检视流程 ─────────────────────────
@@ -499,7 +516,8 @@ function onInspectEnter(point) {
     const st = $('inspect-status')
     st.textContent = '请完成车外安全确认'
     st.className = 'inspect-status'
-    setInspectPanelCollapsed(true)
+    $('inspect-panel').style.display = 'none'
+    prepareInspectResultTrigger(point)
     return
   }
   $('inspect-title').textContent = `${point.route.shortName} · ${point.item.name}`
@@ -508,7 +526,8 @@ function onInspectEnter(point) {
   // 故障符号说明暂时保留在 DOM 中，当前训练界面不显示。
   $('inspect-wait').style.display = 'none'
   $('fault-report-form').style.display = 'none'
-  setInspectPanelCollapsed(true)
+  $('inspect-panel').style.display = 'none'
+  prepareInspectResultTrigger(point)
 }
 
 function updateInspectProgress() {
@@ -538,7 +557,7 @@ function onMarkerPick(marker, point) {
   $('report-inner-outer').value = practice && (part?.side === 'left' || part?.side === 'right') ? '外侧' : ''
   $('report-fault-type').value = ''
   $('fault-report-form').style.display = 'grid'
-  setInspectPanelCollapsed(false)
+  openInspectResultPanel()
   $('report-end').focus()
   showToast('已选中故障标记，请填写故障活件')
 }
@@ -626,7 +645,8 @@ function submitFaultReport(event) {
   updateInspectProgress()
   refreshProgress()
   renderRouteList()
-  setInspectPanelCollapsed(true)
+  // 一处物理部件只布置一枚故障；填报完成即完成该部件检查并返回漫游。
+  exitInspect()
   maybeFinishTraining()
 }
 
@@ -681,6 +701,7 @@ function exitInspect() {
   pendingMarker = null
   $('fault-report-form').style.display = 'none'
   $('inspect-reference').style.display = 'none'
+  $('inspect-result-trigger').style.display = 'none'
   setContextItem(null)
   $('inspect-panel').style.display = 'none'
   // 返回进入检视前的模式（漫游或场景）
@@ -1046,6 +1067,8 @@ function initMobileExit() {
 }
 
 function openSessionGate() {
+  clearTimeout(trainingChromeTimer)
+  $('app').classList.remove('training-chrome-hidden')
   document.body.classList.remove('session-running')
   document.body.classList.add('session-entry')
   const p = state.profile ?? {}
@@ -1069,6 +1092,12 @@ function beginSession() {
   document.body.classList.remove('session-entry')
   document.body.classList.add('session-running')
   requestMobileLandscape()
+  clearTimeout(trainingChromeTimer)
+  $('app').classList.remove('training-chrome-hidden')
+  // 训练开始五秒后收起顶部系统栏，保留退出键，避免遮挡走行部检视视野。
+  trainingChromeTimer = window.setTimeout(() => {
+    $('app').classList.add('training-chrome-hidden')
+  }, 5000)
   resetState()
   flow.setCurrent(0)
   currentRouteIndex = 0
@@ -1167,6 +1196,7 @@ function init() {
   // 检视面板
   $('inspect-exit').addEventListener('click', exitInspect)
   $('inspect-toggle').addEventListener('click', () => setInspectPanelCollapsed(!$('inspect-panel').classList.contains('collapsed')))
+  $('inspect-result-trigger').addEventListener('click', openInspectResultPanel)
   $('fault-report-form').addEventListener('submit', submitFaultReport)
   $('fault-report-cancel').addEventListener('click', () => {
     pendingMarker = null
