@@ -535,6 +535,8 @@ button:focus-visible { outline: 2px solid #78c9ff; outline-offset: 2px; }
   box-shadow: 0 0 20px rgba(92, 255, 156, .35), inset 0 0 12px rgba(92, 255, 156, .16);
 }
 .vbtn-interact.ready .vbtn-hint { color: #adffd0; }
+/* 中央“可交互检查点”提示已废止：不论运行时状态如何都不占用三维视野。 */
+#near-hint { display: none !important; }
 
 .mobile-rotate-message, .mobile-fullscreen, .mobile-exit { display: none; }
 body.mobile-controls-enabled .mobile-fullscreen,

@@ -1014,7 +1014,11 @@ export function createInspectionScene(container, callbacks = {}) {
       if (playerController) {
         const ctx = getPlayerContext()
         const desc = computeNearDescriptor(ctx)
-        const key = desc ? `${desc.kind}:${desc.point?.id ?? desc.partId}` : null
+        // 同一部件在“未到位 / 已到位”之间切换时也必须刷新 HUD，
+        // 否则手机交互键会停留在旧颜色，无法准确反映当前可交互状态。
+        const key = desc
+          ? `${desc.kind}:${desc.point?.id ?? desc.partId}:${desc.stage ?? ''}:${desc.canEnter}:${desc.unmetLabel ?? ''}`
+          : null
         if (key !== nearKey) {
           nearKey = key
           nearestPoint = desc?.point ?? null
