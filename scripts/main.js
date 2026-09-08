@@ -43,6 +43,7 @@ const RUNNING_GEAR_ITEM_IDS = new Set(getRunningGearItemIds())
 let state = {
   sessionId: '',
   operator: '教学演练',
+  profile: { name: '', id: '', group: '', device: '', mode: 'practice' },
   startTime: '',
   items: {}, // itemId -> { status, note, action, level, time, faultsFound, faultsTotal }
 }
@@ -56,6 +57,7 @@ let preInspectMode = 'scene' // 进入检视前的模式（退出时返回）
 let contextItemId = null     // 漫游中当前靠近/正在检视的部件，只在右侧展示它的要点
 let sessionTimer = null
 let landscapeRequest = null
+let roamHintShown = false
 
 // 检查流程显式状态机（skill 约束 1）：阶段推进 + 完成判定
 const flow = createInspectionFlow(INSPECTION_ROUTES, {
@@ -79,6 +81,7 @@ function resetState() {
   state = {
     sessionId: `JC${Date.now().toString().slice(-8)}`,
     operator: state.operator,
+    profile: state.profile ?? { name: '', id: '', group: '', device: '', mode: 'practice' },
     startTime: formatNow(),
     deadlineAt: Date.now() + SESSION_LIMIT_SECONDS * 1000,
     finishedAt: '',
@@ -353,6 +356,17 @@ function refreshProgress() {
   $('foot-operator').textContent = state.operator
   $('foot-time').textContent = state.startTime || '—'
   $('foot-model').textContent = modelSourceLabel
+  const profile = state.profile ?? {}
+  $('footer-session').title = `${profile.name || state.operator} · ${profile.id || '未登记'} · ${profile.group || '未填写班级'} · ${profile.mode === 'assessment' ? '考评模式' : '练习模式'}`
+}
+function pointTotalForItem(itemId) {
+  const points = scene?.getInspectionPoints?.() ?? []
+  return points.filter((p) => (p.itemId ?? p.item?.id) === itemId && !p.isRouteEntry).length || 1
+}
+function faultTotalForItem(itemId) {
+  const points = scene?.getInspectionPoints?.() ?? []
+  return points.filter((p) => (p.itemId ?? p.item?.id) === itemId)
+    .reduce((sum, p) => sum + (p.markers?.length ?? 0), 0)
 }
 
 // ───────────────────────── 导航 ─────────────────────────
@@ -402,8 +416,9 @@ function setMode(mode) {
 
   app.classList.remove('mode-scene', 'mode-roam', 'mode-inspect')
   app.classList.add(`mode-${mode}`)
-  $('roam-hint').style.display = mode === 'roam' ? 'block' : 'none'
+  $('roam-hint').style.display = 'none'
   $('inspect-panel').style.display = mode === 'inspect' ? 'flex' : 'none'
+  if (mode !== 'inspect') $('inspect-panel').classList.remove('collapsed')
 
   // 先切场景状态（roam 时 enable playerController），再处理鼠标锁定
   scene?.setMode?.(mode)
@@ -414,11 +429,25 @@ function setMode(mode) {
       ? '左摇杆移动 · 右半屏拖拽转视角 · 交互/加速/跳跃/下蹲'
       : 'WASD 移动 · 空格跳跃 · Shift 奔跑 · C 下蹲 · E 交互 · Esc 退出漫游'
     $('touch-controls').style.display = isTouch ? 'block' : 'none'
+    if (!roamHintShown) {
+      roamHintShown = true
+      $('roam-hint').style.display = 'block'
+      clearTimeout(setMode.roamHintTimer)
+      setMode.roamHintTimer = setTimeout(() => { $('roam-hint').style.display = 'none' }, 3000)
+    }
   } else {
     $('touch-controls').style.display = 'none'
     // 非漫游模式（场景/检视）释放鼠标锁定，让用户能点击面板/按钮
     scene?.releasePlayerLock?.()
   }
+}
+
+function setInspectPanelCollapsed(collapsed) {
+  const panel = $('inspect-panel')
+  if (!panel || panel.style.display === 'none') return
+  panel.classList.toggle('collapsed', Boolean(collapsed))
+  $('inspect-toggle').textContent = collapsed ? '‹' : '›'
+  $('inspect-toggle').setAttribute('aria-label', collapsed ? '展开部件检视' : '收起部件检视')
 }
 
 // ───────────────────────── 检视流程 ─────────────────────────
@@ -455,14 +484,16 @@ function onInspectEnter(point) {
     const st = $('inspect-status')
     st.textContent = '请完成车外安全确认'
     st.className = 'inspect-status'
+    setInspectPanelCollapsed(true)
     return
   }
   $('inspect-title').textContent = `${point.route.shortName} · ${point.item.name}`
-  $('inspect-hint').textContent = '拖动旋转视角寻找标记；点击标记直接填报故障'
+  $('inspect-hint').textContent = ''
   updateInspectProgress()
   // 故障符号说明暂时保留在 DOM 中，当前训练界面不显示。
   $('inspect-wait').style.display = 'none'
   $('fault-report-form').style.display = 'none'
+  setInspectPanelCollapsed(true)
 }
 
 function updateInspectProgress() {
@@ -483,14 +514,16 @@ function onMarkerPick(marker, point) {
   pendingMarker = marker
   const part = point.part
   $('report-locomotive').value ||= 'HXD3D 0004'
-  $('report-end').value = part?.endLabel ?? (point.position?.x > 4.2 ? 'I端' : 'II端')
-  $('report-side').value = part?.side === 'left' ? '左侧' : part?.side === 'right' ? '右侧' : ''
-  $('report-axle').value = part?.axleNo ? `${part.axleNo}轴` : ''
-  $('report-position').value = ['前位', '中位', '后位'].includes(part?.positionLabel) ? part.positionLabel : ''
-  $('report-part').value = part?.shortName ?? point.reportPartName ?? point.item?.name ?? ''
-  $('report-inner-outer').value = part?.side === 'left' || part?.side === 'right' ? '外侧' : ''
+  const practice = state.profile?.mode !== 'assessment'
+  $('report-end').value = practice ? (part?.endLabel ?? (point.position?.x > 4.2 ? 'I端' : 'II端')) : ''
+  $('report-side').value = practice ? (part?.side === 'left' ? '左侧' : part?.side === 'right' ? '右侧' : '') : ''
+  $('report-axle').value = practice && part?.axleNo ? `${part.axleNo}轴` : ''
+  $('report-position').value = practice && ['前位', '中位', '后位'].includes(part?.positionLabel) ? part.positionLabel : ''
+  $('report-part').value = practice ? (part?.shortName ?? point.reportPartName ?? point.item?.name ?? '') : ''
+  $('report-inner-outer').value = practice && (part?.side === 'left' || part?.side === 'right') ? '外侧' : ''
   $('report-fault-type').value = ''
   $('fault-report-form').style.display = 'grid'
+  setInspectPanelCollapsed(false)
   $('report-end').focus()
   showToast('已选中故障标记，请填写故障活件')
 }
@@ -509,6 +542,37 @@ function normalizeAxle(value) {
   return /^[1-6]$/.test(n) ? `${n}轴` : ''
 }
 
+function normalizePart(value) {
+  return String(value || '').replace(/[\s·、，,（）()]/g, '').replace(/一系弹簧/g, '一系悬挂').replace(/油压减震器/g, '油压减振器')
+}
+function expectedFaultReport(point, marker) {
+  const p = point.part ?? {}
+  return {
+    end: p.endLabel ?? (point.position?.x > 4.2 ? 'I端' : 'II端'),
+    side: p.side === 'left' ? '左侧' : p.side === 'right' ? '右侧' : '',
+    axle: p.axleNo ? `${p.axleNo}轴` : '',
+    position: p.positionLabel ?? '',
+    partName: p.shortName ?? point.reportPartName ?? point.item?.name ?? '',
+    innerOuter: p.side === 'left' || p.side === 'right' ? '外侧' : '',
+    faultType: marker.faultType,
+  }
+}
+function scoreFaultReport(report, expected) {
+  const fields = [
+    ['end', .10, normalizeEnd], ['side', .15, (v) => v], ['axle', .15, normalizeAxle],
+    ['position', .10, (v) => v], ['partName', .20, normalizePart], ['innerOuter', .10, (v) => v], ['faultType', .20, (v) => v],
+  ].filter(([key]) => Boolean(expected[key]))
+  const available = fields.reduce((sum, [, weight]) => sum + weight, 0) || 1
+  let score = 0
+  const results = {}
+  fields.forEach(([key, weight, norm]) => {
+    const correct = norm(report[key]) === norm(expected[key])
+    results[key] = correct
+    if (correct) score += weight / available * 100
+  })
+  return { score: Math.round(score), results, expected }
+}
+
 function submitFaultReport(event) {
   event?.preventDefault?.()
   if (!pendingMarker || !activePoint) { showToast('请先点击三维画面中的故障标记'); return }
@@ -524,29 +588,30 @@ function submitFaultReport(event) {
   if (!partName) { showToast('请填写部件名称'); return }
   if (!faultType) { showToast('请选择故障类型'); return }
 
-  const matched = matchFaultType(faultType, pendingMarker.faultType)
-  if (!matched.matched) {
-    showFeedback(false, '标记判断不符', '请根据当前标记的形态和所在零部件重新选择故障类型')
-    return
-  }
   const report = {
     locomotive: $('report-locomotive').value.trim(), end, side, axle,
     position: $('report-position').value, partName,
     innerOuter: $('report-inner-outer').value,
     faultType, faultLabel: FAULT_TYPES[faultType].label,
   }
+  report.accuracy = scoreFaultReport(report, expectedFaultReport(activePoint, pendingMarker))
+  const matched = matchFaultType(faultType, pendingMarker.faultType)
+  if (state.profile?.mode !== 'assessment' && !matched.matched) {
+    showFeedback(false, '标记判断不符', '请根据当前标记的形态和所在零部件重新选择故障类型')
+    return
+  }
   scene?.markFound?.(pendingMarker)
   if (activePoint.isPartPoint) {
     scene?.getPartFSM?.()?.observeMarker(activePoint.part.partId, `${activePoint.id}:${pendingMarker.faultType}`)
   }
   recordFaultFound(activePoint, report)
-  showFeedback(true, '故障已上报', composeFaultReport(report))
+  showFeedback(true, '故障已上报', state.profile?.mode === 'assessment' ? '本次填报已记录，将在成绩单中统一评定。' : composeFaultReport(report))
   pendingMarker = null
   $('fault-report-form').style.display = 'none'
   updateInspectProgress()
   refreshProgress()
   renderRouteList()
-  exitInspect()
+  setInspectPanelCollapsed(true)
   maybeFinishTraining()
 }
 
@@ -681,15 +746,15 @@ function renderReport({ final = false } = {}) {
   })
   $('report-sub').textContent = ` · ${INSPECTION_META.locomotive} · ${state.sessionId}`
   $('report-note').innerHTML =
-    `检查人：${state.operator} · 开始时间：${state.startTime}` +
+    `检查人：${state.operator} · 工号/学号：${state.profile?.id || '—'} · 班级/班组：${state.profile?.group || '—'} · ${state.profile?.mode === 'assessment' ? '考评模式' : '练习模式'} · 开始时间：${state.startTime}` +
     (state.finishedAt ? ` · 结束时间：${state.finishedAt} · ${state.finishReason}` : '') +
     `<br>${INSPECTION_META.disclaimer}`
 
   const score = computeScore({
     routes: INSPECTION_ROUTES,
     getItem: (id) => state.items[id],
-    globalStats: g,
-    faultStats: f,
+    getPointTotal: pointTotalForItem,
+    getFaultTotal: faultTotalForItem,
   })
   $('report-body').innerHTML = `
     <div class="report-summary">
@@ -703,6 +768,12 @@ function renderReport({ final = false } = {}) {
       <div class="report-stat"><b>${Math.round(f.rate * 100)}%</b><small>检出率</small></div>
       <div class="report-stat"><b>${score.total}</b><small>综合得分</small></div>
       <div class="report-stat ${score.pass ? 'ok' : 'ng'}"><b>${score.pass ? '合格' : '不合格'}</b><small>评定</small></div>
+    </div>
+    <div class="report-section">
+      <h4>逐项评分（实体覆盖、故障检出与填报准确度）</h4>
+      <table class="report-table"><thead><tr><th>部位</th><th>检查项</th><th>检查覆盖</th><th>故障检出</th><th>填报准确</th><th>得分</th></tr></thead>
+      <tbody>${score.items.map((s) => `<tr><td>${s.route.shortName}</td><td>${s.item.name} <small>(${s.max}分)</small></td><td>${s.checked}/${s.pointTotal}</td><td>${s.faultTotal ? `${s.found}/${s.faultTotal}` : '—'}</td><td>${s.faultTotal ? `${s.reportAccuracy}%` : '—'}</td><td><b>${s.earned}/${s.max}</b></td></tr>`).join('')}</tbody></table>
+      ${score.blocking ? '<p class="report-warning">存在 A 类关键项未完成或严重故障漏检，本次成绩判定为不合格。</p>' : ''}
     </div>
     <div class="report-section">
       <h4>异常登记明细</h4>
@@ -966,6 +1037,33 @@ function initMobileExit() {
   })
 }
 
+function openSessionGate() {
+  const p = state.profile ?? {}
+  $('session-name').value = p.name ?? ''
+  $('session-id').value = p.id ?? ''
+  $('session-group').value = p.group ?? ''
+  $('session-device').value = p.device || $('session-device').value
+  $('session-mode').value = p.mode ?? 'practice'
+  $('session-tip').textContent = window.__sceneReady ? '三维模型已就绪，可以进入训练。' : '正在载入三维模型，请稍候。'
+  $('session-enter').disabled = !window.__sceneReady
+  $('session-gate').style.display = 'grid'
+}
+
+function beginSession() {
+  const name = $('session-name').value.trim()
+  const id = $('session-id').value.trim()
+  if (!name || !id) { $('session-tip').textContent = '请填写学员姓名和工号/学号。'; return }
+  state.profile = { name, id, group: $('session-group').value.trim(), device: $('session-device').value, mode: $('session-mode').value }
+  state.operator = name
+  resetState()
+  flow.setCurrent(0)
+  currentRouteIndex = 0
+  scene?.resetMarkers?.()
+  $('session-gate').style.display = 'none'
+  updateSessionTimer(); renderRouteList(); renderRouteDetail(); refreshProgress()
+  showToast(state.profile.mode === 'assessment' ? '考评模式已开始：填报结果将在成绩单中统一评分。' : '练习模式已开始：可通过故障填报进行学习。')
+}
+
 // ───────────────────────── 启动 ─────────────────────────
 function init() {
   // 手机端标记（用于横屏 CSS 规则与安全区适配）
@@ -1053,11 +1151,13 @@ function init() {
 
   // 检视面板
   $('inspect-exit').addEventListener('click', exitInspect)
+  $('inspect-toggle').addEventListener('click', () => setInspectPanelCollapsed(!$('inspect-panel').classList.contains('collapsed')))
   $('fault-report-form').addEventListener('submit', submitFaultReport)
   $('fault-report-cancel').addEventListener('click', () => {
     pendingMarker = null
     $('fault-report-form').style.display = 'none'
   })
+  $('session-enter').addEventListener('click', beginSession)
   // 未点击故障标记时只保留“确认未见异常”。
   $('inspect-ok').addEventListener('click', () => decideFromInspect('ok'))
   // Esc 退出检视（桌面端）
@@ -1089,12 +1189,12 @@ function init() {
       $('foot-point').textContent = `${pts.length} 个`
       refreshProgress()
       selectRoute(currentRouteIndex, { focus: false })
-      if (restored) showToast('已恢复上次未完成的检查记录')
+      if (restored && state.profile?.name) showToast('已恢复上次未完成的检查记录')
       // ★ 默认直接进入漫游模式（第一人称视角），点击画面锁定鼠标
       setMode('roam')
-      showToast('漫游模式：点击画面锁定鼠标 · WASD 移动 · E 检视部件')
+      showToast('漫游模式已就绪')
       // 让完成态在画面中保留一瞬，再进入系统，避免显示不可信的中间百分比。
-      window.setTimeout(() => { $('loading').style.display = 'none' }, 180)
+      window.setTimeout(() => { $('loading').style.display = 'none'; openSessionGate() }, 180)
     },
     onError: (e) => {
       $('loading-text').textContent = `三维模型加载失败：${e?.message ?? e}`
@@ -1123,15 +1223,15 @@ function init() {
       if (!desc) { hint.style.display = 'none'; return }
       hint.style.display = 'block'
       hint.classList.toggle('can-enter', Boolean(desc.canEnter))
-      const name = desc.shortName || desc.name || '检查部位'
+      // 漫游时不提前展示部件名称与交互条件，避免挡住零部件；名称只在实际进入检视后显示。
+      const name = '可交互检查点'
       if (desc.kind === 'part') {
-        // 走行部：明确显示「部件名称 + 距离 + 交互条件」
         $('near-hint-text').textContent = `${name} · ${desc.distance.toFixed(1)} m`
         const sub = hint.querySelector('small')
         if (sub) {
           sub.textContent = desc.canEnter
             ? '按 E / 交互键进入检视'
-            : `交互条件：${desc.unmetLabel || desc.stageLabel}`
+            : '靠近并正对检查点后可交互'
         }
       } else {
         $('near-hint-text').textContent = `${name} · ${(desc.distance ?? 0).toFixed(1)} m`

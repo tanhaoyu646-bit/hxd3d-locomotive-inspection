@@ -150,10 +150,11 @@
 
     <!-- 检视面板（右侧滑出，检视模式） -->
     <aside class="inspect-panel" id="inspect-panel" style="display:none">
+      <button class="inspect-collapse" id="inspect-toggle" type="button" aria-label="展开部件检视">‹</button>
       <div class="inspect-head">
         <div>
           <strong id="inspect-title">部件检视</strong>
-          <small id="inspect-hint">拖动旋转视角，寻找部件上的细小标记</small>
+          <small id="inspect-hint" style="display:none"></small>
         </div>
         <button class="inspect-exit" id="inspect-exit">退出检视</button>
       </div>
@@ -230,7 +231,7 @@
     <div class="fault-feedback" id="fault-feedback" style="display:none"></div>
 
     <footer class="status-footer">
-      <div>
+      <div id="footer-session">
         <span>检查人 <b id="foot-operator">—</b></span>
         <span>开始时间 <b id="foot-time">—</b></span>
         <span>剩余时间 <b id="foot-timer">—</b></span>
@@ -250,6 +251,25 @@
       <strong>机车检查作业系统</strong>
       <div class="loading-track"><i id="loading-bar"></i></div>
       <small id="loading-text">正在加载三维模型</small>
+    </div>
+
+    <div class="session-gate" id="session-gate" style="display:none" role="dialog" aria-modal="true" aria-label="身份识别与选择实训台">
+      <section class="session-card">
+        <div class="session-head"><span>机车检查实训台 · 身份识别</span><b>训练模式</b></div>
+        <div class="session-face"><span>人脸识别区域</span><i></i></div>
+        <h1>进入机车检查作业</h1>
+        <p>填写本次训练身份信息；成绩单将绑定本次训练编号。</p>
+        <div class="session-form">
+          <label>学员姓名<input id="session-name" autocomplete="name" placeholder="请输入姓名" required></label>
+          <label>工号/学号<input id="session-id" autocomplete="username" placeholder="请输入工号或学号" required></label>
+          <label>班级/班组<input id="session-group" placeholder="如：机车2201班"></label>
+          <label>实训设备<select id="session-device"><option>HXD3D 机车检查实训台 01</option><option>HXD3D 机车检查实训台 02</option></select></label>
+          <label>训练模式<select id="session-mode"><option value="practice">练习模式</option><option value="assessment">考评模式</option></select></label>
+          <label>机车型号<input value="HXD3D型电力机车" readonly></label>
+        </div>
+        <small class="session-tip" id="session-tip">三维模型将在进入前完成载入。</small>
+        <button class="session-enter" id="session-enter" type="button">进入机车检查作业</button>
+      </section>
     </div>
 
     <!-- 结果汇总 -->
