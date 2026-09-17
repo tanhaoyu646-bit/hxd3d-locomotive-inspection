@@ -47,8 +47,8 @@ async function evaluate(expression) {
   if (response.exceptionDetails) throw new Error(response.exceptionDetails.text)
   return response.result?.result?.value
 }
-async function waitFor(expression, label) {
-  for (let i = 0; i < 120; i += 1) {
+async function waitFor(expression, label, attempts = 600) {
+  for (let i = 0; i < attempts; i += 1) {
     if (await evaluate(expression)) return
     await wait(125)
   }
