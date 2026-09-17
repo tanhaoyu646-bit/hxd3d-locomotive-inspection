@@ -39,7 +39,7 @@ check('部件限定故障类型', allowedFaultTypes(point).join(',') === 'crack,
 check('故障类型循环', nextFaultType(point, 'crack') === 'loose-bolt')
 
 const baseFault = {
-  faultId: `F-${point.id}`,
+  faultId: `F-${point.id}-1`,
   pointId: point.id,
   partId: point.id,
   itemId: 'bogie-2',
@@ -49,12 +49,20 @@ const baseFault = {
 }
 scenario = upsertScenarioFault(scenario, baseFault)
 scenario = upsertScenarioFault(scenario, { ...baseFault, anchor: { ...baseFault.anchor, position: [4, 5, 6] } })
-check('同一检查点只保留一处故障', scenario.faults.length === 1)
-check('重新点击可更新表面位置', scenario.faults[0].anchor.position[0] === 4)
+check('同一故障编号更新时不重复增加', scenario.faults.length === 1)
+check('同一故障编号可更新表面位置', scenario.faults[0].anchor.position[0] === 4)
 scenario = updateScenarioFaultType(scenario, baseFault.faultId, 'loose-bolt')
 check('可切换故障类型', scenario.faults[0].faultType === 'loose-bolt')
 check('切换类型后清除旧轮廓顶点', !scenario.faults[0].anchor.vertices)
 check('草稿可从本机恢复', loadPeerScenario()?.faults?.length === 1)
+
+scenario = upsertScenarioFault(scenario, {
+  ...baseFault,
+  faultId: `F-${point.id}-2`,
+  faultType: 'leak',
+  anchor: { ...baseFault.anchor, position: [4.2, 5.2, 6.2] },
+})
+check('同一语义零部件可保存第二处独立故障', scenario.faults.length === 2)
 
 const secondPointFault = {
   ...baseFault,
@@ -66,12 +74,12 @@ const secondPointFault = {
   anchor: { ...baseFault.anchor, position: [4.4, 5.5, 6.6] },
 }
 scenario = upsertScenarioFault(scenario, secondPointFault)
-check('同一观测站位的不同零部件可各保留一处故障', scenario.faults.length === 2)
+check('同一观测站位的不同零部件可各保留故障', scenario.faults.length === 3)
 
 scenario = lockPeerScenario(scenario)
 check('题目可锁定交给答题人', scenario?.status === 'locked')
 const unchanged = removeLastScenarioFault(scenario)
-check('锁定后不能删改答案', unchanged.faults.length === 2)
+check('锁定后不能删改答案', unchanged.faults.length === 3)
 
 console.log(`\n同伴出题状态断言通过 ${passed} · 失败 ${failed}`)
 if (failed) process.exit(1)

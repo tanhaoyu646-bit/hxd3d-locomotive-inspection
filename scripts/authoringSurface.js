@@ -71,6 +71,7 @@ export function conformMarkerGeometry({
   raycaster = new THREE.Raycaster(),
   castDistance = 0.16,
   surfaceOffset = 0.0025,
+  boundsTolerance = 0.08,
 }) {
   const position = marker?.line?.geometry?.getAttribute?.('position')
   if (!position || !modelRoot || !authoringBox || !baseNormal) return []
@@ -80,6 +81,7 @@ export function conformMarkerGeometry({
   const direction = new THREE.Vector3()
   const stored = []
   let projected = 0
+  const projectionBox = authoringBox.clone().expandByScalar(boundsTolerance)
 
   for (let i = 0; i < position.count; i += 1) {
     candidate.fromBufferAttribute(position, i)
@@ -91,7 +93,7 @@ export function conformMarkerGeometry({
       raycaster.far = castDistance * 2
       const hits = raycaster.intersectObject(modelRoot, true)
       const hit = hits
-        .filter((entry) => authoringBox.containsPoint(entry.point))
+        .filter((entry) => projectionBox.containsPoint(entry.point))
         .sort((a, b) => a.point.distanceToSquared(candidate) - b.point.distanceToSquared(candidate))[0]
       if (!hit) continue
       const distance = hit.point.distanceTo(candidate)

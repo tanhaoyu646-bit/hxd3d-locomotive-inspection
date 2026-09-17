@@ -14,8 +14,8 @@ import {
   INSPECTION_ROUTES as ALL_INSPECTION_ROUTES,
   METHOD_LABELS,
   LEVEL_LABELS,
-} from './inspectionData.js?v=1.4.0'
-import { createInspectionScene } from './sceneController.js?v=1.4.0'
+} from './inspectionData.js?v=1.5.0'
+import { createInspectionScene } from './sceneController.js?v=1.5.0'
 import { FAULT_TYPES, matchFaultType } from './partInspection.js'
 import { getRunningGearItemIds, getRunningGearParts } from './parts/runningGearParts.js'
 import { createInspectionFlow } from './inspectionFlow.js'
@@ -31,7 +31,7 @@ import {
   updateScenarioFaultType,
   removeLastScenarioFault,
   lockPeerScenario,
-} from './peerScenario.js?v=1.4.0'
+} from './peerScenario.js?v=1.5.0'
 
 const STORAGE_PREFIX = 'hxd3d-inspection-session-v3'
 const PROFILE_KEY = 'hxd3d-inspection-last-profile-v1'

@@ -160,3 +160,44 @@ export function resolveStationPart(point, surfacePoint, tolerance = 0.24) {
     .sort((a, b) => a.score - b.score)
   return candidates[0]?.candidate ?? null
 }
+
+/**
+ * 从整车射线结果的最前可见表面层解析站位内的语义零部件。
+ *
+ * GLB 中一个视觉部件往往由多个相邻三角面组成，最前命中面可能恰好落在
+ * 语义包围盒边缘。旧实现只拿 hits[0] 猜一次零部件，猜错或越界就整次失败。
+ * 这里允许在同一可见表面厚度内检查多个命中面，但绝不穿过明显遮挡物。
+ */
+export function resolveStationSurfaceHit(point, hits, {
+  boundsTolerance = 0.42,
+  visibleLayerDepth = 0.085,
+} = {}) {
+  if (!Array.isArray(hits) || !hits.length) return null
+  const parts = semanticPointsFor(point)
+  if (!parts.length) return null
+  const firstDistance = Number(hits[0]?.distance) || 0
+  const matches = []
+
+  for (const hit of hits) {
+    if (!hit?.point) continue
+    const depth = (Number(hit.distance) || 0) - firstDistance
+    if (depth > visibleLayerDepth) break
+    for (const candidate of parts) {
+      const box = candidate.authoringBox ?? candidate.geometryBox
+      if (!box) continue
+      const boxDistance = box.distanceToPoint(hit.point)
+      if (boxDistance > boundsTolerance) continue
+      const center = box.getCenter(new THREE.Vector3())
+      const size = box.getSize(new THREE.Vector3())
+      const dx = (hit.point.x - center.x) / Math.max(size.x * 0.5, 0.18)
+      const dy = (hit.point.y - center.y) / Math.max(size.y * 0.5, 0.18)
+      const dz = (hit.point.z - center.z) / Math.max(size.z * 0.5, 0.18)
+      // 先奖励真正落在范围内的面，再按归一化中心距离区分重叠范围。
+      const score = boxDistance * 18 + dx * dx + dy * dy + dz * dz + depth * 8
+      matches.push({ point: candidate, hit, score, boxDistance, depth })
+    }
+  }
+
+  matches.sort((a, b) => a.score - b.score || a.hit.distance - b.hit.distance)
+  return matches[0] ?? null
+}

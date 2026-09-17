@@ -44,7 +44,7 @@ console.error = originalError
 const root = gltf.scene
 root.updateMatrixWorld(true)
 const raycaster = new THREE.Raycaster()
-const representativeTypes = ['wheelset', 'axlebox', 'primarySpring', 'brakeUnit', 'damper', 'tractionRod', 'sandBox', 'motorGearbox']
+const representativeTypes = ['wheelset', 'axlebox', 'primarySpring', 'brakeDisc', 'brakeUnit', 'damper', 'tractionRod', 'sandBox', 'motorGearbox']
 for (const type of representativeTypes) {
   const part = getRunningGearParts().find((item) => item.type === type && item.side === 'left')
   if (!part) { check(`${type} 有代表实例`, false); continue }

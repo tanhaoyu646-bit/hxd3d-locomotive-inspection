@@ -18,17 +18,17 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js'
 import { DualPlayerController } from './player/DualPlayerController.js'
 import { createLocomotiveCollisionSystem } from './parts/LocomotiveCollisionSystem.js'
-import { getRunningGearParts, getRunningGearItemIds } from './parts/runningGearParts.js?v=1.4.0'
+import { getRunningGearParts, getRunningGearItemIds } from './parts/runningGearParts.js?v=1.5.0'
 import {
   buildRunningGearStations,
   semanticPointsFor,
   markersForPoint,
-  resolveStationPart,
-} from './parts/inspectionStations.js?v=1.4.0'
+  resolveStationSurfaceHit,
+} from './parts/inspectionStations.js?v=1.5.0'
 import { createPartInteractionFSM } from './parts/partInteractionFSM.js'
 import { buildItemIndex } from './inspectionData.js'
 import { SCENARIO_FAULT_POINT_IDS } from './faultScenario.js'
-import { createAuthoringBox, selectAuthoringHit, conformMarkerGeometry, configureInspectOrbit } from './authoringSurface.js?v=1.4.0'
+import { createAuthoringBox, selectAuthoringHit, conformMarkerGeometry, configureInspectOrbit } from './authoringSurface.js?v=1.5.0'
 import {
   buildInspectionPoints,
   buildPartPoints,
@@ -180,6 +180,7 @@ export function createInspectionScene(container, callbacks = {}) {
   let nearKey = null            // 当前 near-hint 关键字，避免每帧重复回调 UI
   let roamTapStart = null       // 漫游点按：区分点击检查点与拖拽转向
   let authorTapStart = null     // 出题点按：区分表面落点与 OrbitControls 拖动
+  let authorFaultSerial = 0     // 同一零部件可保存多枚故障，生成会话内唯一编号
   let scenarioMode = 'idle'     // idle | default | author | peer；登录前不预生成题库故障
   let scenarioData = null
   const clock = new THREE.Clock()
@@ -1068,19 +1069,6 @@ export function createInspectionScene(container, callbacks = {}) {
   }
   renderer.domElement.addEventListener('pointerdown', onInspectPointerDown)
 
-  function removePointMarkers(point) {
-    for (const marker of point?.markers ?? []) {
-      markerGroup.remove(marker.line, marker.proxy)
-      marker.line?.geometry?.dispose?.(); marker.line?.material?.dispose?.()
-      marker.proxy?.geometry?.dispose?.(); marker.proxy?.material?.dispose?.()
-    }
-    if (point) {
-      point.markers = []
-      point.found = 0
-      point.hasScenarioFault = false
-    }
-  }
-
   function onInspectPointerUp(event) {
     if (!authorTapStart || authorTapStart.id !== event.pointerId) return
     const start = authorTapStart
@@ -1113,16 +1101,16 @@ export function createInspectionScene(container, callbacks = {}) {
       return
     }
 
-    // 只采用射线的第一层可见表面，再在当前标准站位内解析具体零部件。
-    // 这样同一站位可依次在弹簧、制动盘、轮对等不同部件上设置故障，且不会穿透到内腔。
+    // 在最前方同一可见表面层内解析具体零部件。站位只负责镜头入口，
+    // 故障答案仍直接绑定到轮对、轴箱、悬挂、制动盘等语义零部件。
     const hits = raycaster.intersectObject(locomotiveRoot, true)
-    const visibleHit = hits[0]
-    const targetPoint = activePoint.isStationPoint
-      ? resolveStationPart(activePoint, visibleHit?.point, 0.30)
-      : activePoint
-    const hit = targetPoint
-      ? selectAuthoringHit(hits, targetPoint.authoringBox ?? targetPoint.geometryBox, 0.045, 0.30)
+    const resolved = activePoint.isStationPoint
+      ? resolveStationSurfaceHit(activePoint, hits)
       : null
+    const targetPoint = resolved?.point ?? (activePoint.isStationPoint ? null : activePoint)
+    const hit = resolved?.hit ?? (targetPoint
+      ? selectAuthoringHit(hits, targetPoint.authoringBox ?? targetPoint.geometryBox, 0.085, 0.42)
+      : null)
     if (!hit) {
       callbacks.onToast?.('该位置不属于当前站位的可出题零部件，请点击可见的轮对、轴箱、悬挂或制动部件表面')
       return
@@ -1143,7 +1131,7 @@ export function createInspectionScene(container, callbacks = {}) {
       return
     }
     const record = {
-      faultId: `F-${targetPoint.id}`,
+      faultId: `F-${targetPoint.id}-${Date.now().toString(36)}-${(++authorFaultSerial).toString(36)}`,
       pointId: targetPoint.id,
       partId: targetPoint.part?.partId ?? '',
       itemId: targetPoint.itemId ?? targetPoint.item?.id ?? '',
@@ -1155,7 +1143,6 @@ export function createInspectionScene(container, callbacks = {}) {
       },
       glyph: { size: 0.072 },
     }
-    removePointMarkers(targetPoint)
     const marker = createFaultMarkerFromRecord(targetPoint, record)
     if (!marker) return
     const vertices = conformMarkerGeometry({

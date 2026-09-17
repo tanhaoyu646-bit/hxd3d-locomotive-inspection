@@ -1,6 +1,7 @@
-// V2 改为“标准站位 + 语义零部件”结构；使用独立存储键，避免旧版草稿在新站位中误显示。
-const STORAGE_KEY = 'hxd3d-peer-scenario-v2'
-export const PEER_SCENARIO_VERSION = 2
+// V3 允许同一观测站位、同一语义零部件保存多处独立故障。
+// 使用独立存储键，避免旧版按 pointId 覆盖保存的草稿污染新题目。
+const STORAGE_KEY = 'hxd3d-peer-scenario-v3'
+export const PEER_SCENARIO_VERSION = 3
 export const PEER_MODEL_VERSION = 'hxd3d-integration-spatial-v1'
 
 function clone(value) {
@@ -77,7 +78,9 @@ export function upsertScenarioFault(scenario, fault) {
     ...clone(fault),
     faultId: fault.faultId || `F-${fault.pointId}`,
   }
-  const index = next.faults.findIndex((item) => item.pointId === record.pointId)
+  // faultId 是一枚物理故障的唯一标识。不能再按 pointId 覆盖，否则同一
+  // 零部件或同一观测站位设置第二处故障时，第一处会静默消失。
+  const index = next.faults.findIndex((item) => item.faultId === record.faultId)
   if (index >= 0) next.faults[index] = record
   else next.faults.push(record)
   return savePeerScenario(next)
