@@ -212,7 +212,7 @@ section('6. 零部件配置与检查项对应')
   const noZone = parts.filter((p) => !p.zones?.length)
   check('每个部件都有允许的检查区域', noZone.length === 0)
 
-  const perAxleTypes = ['wheelset', 'axlebox', 'primarySpring', 'brakeUnit']
+  const perAxleTypes = ['wheelset', 'axlebox', 'primarySpring', 'brakeDisc', 'brakeUnit']
   for (const type of perAxleTypes) {
     const typed = parts.filter((p) => p.type === type)
     const axles = new Set(typed.map((p) => p.axleNo))

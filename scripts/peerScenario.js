@@ -1,5 +1,6 @@
-const STORAGE_KEY = 'hxd3d-peer-scenario-v1'
-export const PEER_SCENARIO_VERSION = 1
+// V2 改为“标准站位 + 语义零部件”结构；使用独立存储键，避免旧版草稿在新站位中误显示。
+const STORAGE_KEY = 'hxd3d-peer-scenario-v2'
+export const PEER_SCENARIO_VERSION = 2
 export const PEER_MODEL_VERSION = 'hxd3d-integration-spatial-v1'
 
 function clone(value) {

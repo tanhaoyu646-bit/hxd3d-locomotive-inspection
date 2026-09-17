@@ -18,11 +18,17 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js'
 import { DualPlayerController } from './player/DualPlayerController.js'
 import { createLocomotiveCollisionSystem } from './parts/LocomotiveCollisionSystem.js'
-import { getRunningGearParts, getRunningGearItemIds } from './parts/runningGearParts.js'
+import { getRunningGearParts, getRunningGearItemIds } from './parts/runningGearParts.js?v=1.4.0'
+import {
+  buildRunningGearStations,
+  semanticPointsFor,
+  markersForPoint,
+  resolveStationPart,
+} from './parts/inspectionStations.js?v=1.4.0'
 import { createPartInteractionFSM } from './parts/partInteractionFSM.js'
 import { buildItemIndex } from './inspectionData.js'
 import { SCENARIO_FAULT_POINT_IDS } from './faultScenario.js'
-import { createAuthoringBox, selectAuthoringHit, conformMarkerGeometry, configureInspectOrbit } from './authoringSurface.js'
+import { createAuthoringBox, selectAuthoringHit, conformMarkerGeometry, configureInspectOrbit } from './authoringSurface.js?v=1.4.0'
 import {
   buildInspectionPoints,
   buildPartPoints,
@@ -163,6 +169,8 @@ export function createInspectionScene(container, callbacks = {}) {
   let playerController = null
   let collisionResolver = null
   let inspectionPoints = []
+  let stationPoints = []        // 标准观测站位；一个站位可覆盖多个语义零部件
+  let interactionPoints = []    // 漫游中实际显示和可进入的点（区域点 + 标准站位 + 环节入口）
   let partPoints = []           // 走行部零部件检查点
   let routeEntryPoints = []     // 环节入口点（如「升弓电气检查」车外点）：站上去按交互键进入该环节
   let partFSM = null            // 接近—观察—确认状态机
@@ -172,7 +180,7 @@ export function createInspectionScene(container, callbacks = {}) {
   let nearKey = null            // 当前 near-hint 关键字，避免每帧重复回调 UI
   let roamTapStart = null       // 漫游点按：区分点击检查点与拖拽转向
   let authorTapStart = null     // 出题点按：区分表面落点与 OrbitControls 拖动
-  let scenarioMode = 'default'  // default | author | peer
+  let scenarioMode = 'idle'     // idle | default | author | peer；登录前不预生成题库故障
   let scenarioData = null
   const clock = new THREE.Clock()
   const gltfLoader = new GLTFLoader()
@@ -363,7 +371,7 @@ export function createInspectionScene(container, callbacks = {}) {
 
   function buildMarkerInstances() {
     disposeMarkerInstances()
-    const count = inspectionPoints.length
+    const count = interactionPoints.length
     if (!count) return
     // 几何与材质参数沿用原 createPointMarker：核心球 r=0.028，光环 0.05~0.07
     const coreGeo = new THREE.SphereGeometry(0.028, 12, 12)
@@ -396,9 +404,9 @@ export function createInspectionScene(container, callbacks = {}) {
   /** 每帧更新实例矩阵（位置 / 脉动缩放 / 光环朝向相机）与实例颜色 */
   function updateMarkerInstances(wave) {
     if (!markerCoreMesh || !markerRingMesh || !markerPickMesh) return
-    const count = inspectionPoints.length
+    const count = interactionPoints.length
     for (let i = 0; i < count; i++) {
-      const p = inspectionPoints[i]
+      const p = interactionPoints[i]
       const isNear = p === nearestPoint
       const s = isNear ? 1.25 + wave * 0.18 : 1 + wave * 0.1
       _markerScale.set(s, s, s)
@@ -416,7 +424,7 @@ export function createInspectionScene(container, callbacks = {}) {
       _markerM4.compose(pos, _markerIdQ, _markerScale)
       markerPickMesh.setMatrixAt(i, _markerM4)
       // 颜色：已发现故障标记→绿；最近点→亮蓝；其余→常规蓝
-      const col = p.markers?.some?.((m) => m.found)
+      const col = markersForPoint(p).some((m) => m.found)
         ? MARKER_COLORS.found
         : (isNear ? MARKER_COLORS.near : MARKER_COLORS.normal)
       markerCoreMesh.setColorAt(i, col)
@@ -486,6 +494,11 @@ export function createInspectionScene(container, callbacks = {}) {
       inspectionPoints.push(entry)
     }
 
+    // 现场作业按“人站到一个标准位置，再围绕该位置检查多个相邻零部件”组织。
+    // 语义零部件继续用于故障记录与评分，但不再各自显示一个重复、抢占命中的光点。
+    stationPoints = buildRunningGearStations(partPoints)
+    interactionPoints = [...regionPoints, ...stationPoints, ...routeEntryPoints]
+
     // 检查点标记改为两个 InstancedMesh（178 次绘制调用 → 2 次）
     buildMarkerInstances()
     configureScenario(scenarioMode, scenarioData)
@@ -503,14 +516,16 @@ export function createInspectionScene(container, callbacks = {}) {
       point.found = 0
       point.hasScenarioFault = false
     })
+    stationPoints.forEach((point) => { point.found = 0 })
   }
 
-  /** 在默认题库、同伴出题、同伴答题之间切换。三种模式共享同一套检查点。 */
-  function configureScenario(nextMode = 'default', nextScenario = null) {
-    scenarioMode = ['author', 'peer'].includes(nextMode) ? nextMode : 'default'
+  /** 在登录空闲、默认题库、同伴出题、同伴答题之间切换。 */
+  function configureScenario(nextMode = 'idle', nextScenario = null) {
+    scenarioMode = ['default', 'author', 'peer'].includes(nextMode) ? nextMode : 'idle'
     scenarioData = nextScenario ?? null
     if (!inspectionPoints.length) return
     clearFaultMarkers()
+    if (scenarioMode === 'idle') return
     if (scenarioMode === 'default') {
       inspectionPoints.forEach((point) => {
         point.hasScenarioFault = SCENARIO_FAULT_POINT_IDS.has(point.id)
@@ -692,7 +707,7 @@ export function createInspectionScene(container, callbacks = {}) {
     const forward = getCameraForward3D()
     const minAim = 0.55
     let best = null
-    for (const point of inspectionPoints) {
+    for (const point of interactionPoints) {
       const target = point.interactionTarget ?? point.position
       const dx = target.x - ctx.position.x
       const dz = target.z - ctx.position.z
@@ -746,7 +761,7 @@ export function createInspectionScene(container, callbacks = {}) {
     let best = null
     let bestD = Infinity
     let bestFacing = 0
-    for (const p of inspectionPoints) {
+    for (const p of interactionPoints) {
       // ★ 水平距离（xz）而非 3D 距离：玩家站在地面也能触发车顶检查点
       const dx = p.position.x - position.x
       const dz = p.position.z - position.z
@@ -826,7 +841,8 @@ export function createInspectionScene(container, callbacks = {}) {
       startCameraMove({ position, target }, { duration: instant ? 0 : 820, instant })
       return true
     }
-    activatePointFaults(point)
+    // 标准站位本身不承载答案；进入后激活/展示该站位覆盖的具体零部件故障。
+    semanticPointsFor(point).forEach(activatePointFaults)
     // 相机靠近该点，OrbitControls 围绕它旋转 = 放大检视
     let offsetDir
     let dist = INSPECT_DISTANCE
@@ -1036,14 +1052,18 @@ export function createInspectionScene(container, callbacks = {}) {
     pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1
     pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1
     raycaster.setFromCamera(pointer, camera)
-    const proxies = activePoint.markers.map((m) => m.proxy).filter(Boolean)
+    const activeMarkers = markersForPoint(activePoint)
+    const proxies = activeMarkers.map((m) => m.proxy).filter(Boolean)
     if (!proxies.length) return
     const hits = raycaster.intersectObjects(proxies, false)
     if (hits.length) {
       const proxy = hits[0].object
       const line = proxy.userData.marker
-      const marker = activePoint.markers.find((m) => m.line === line)
-      if (marker && !marker.found) callbacks.onMarkerPick?.(marker, activePoint)
+      const marker = activeMarkers.find((m) => m.line === line)
+      if (marker && !marker.found) {
+        const owner = semanticPointsFor(activePoint).find((candidate) => candidate.markers?.includes(marker)) ?? activePoint
+        callbacks.onMarkerPick?.(marker, owner, activePoint)
+      }
     }
   }
   renderer.domElement.addEventListener('pointerdown', onInspectPointerDown)
@@ -1083,24 +1103,33 @@ export function createInspectionScene(container, callbacks = {}) {
     raycaster.setFromCamera(pointer, camera)
 
     // 点击已有标记时循环该零部件允许的故障类型，不再重复叠加标记。
-    const markerHit = raycaster.intersectObjects(activePoint.markers.map((marker) => marker.proxy), false)[0]
+    const activeMarkers = markersForPoint(activePoint)
+    const markerHit = raycaster.intersectObjects(activeMarkers.map((marker) => marker.proxy), false)[0]
     if (markerHit) {
       const line = markerHit.object.userData.marker
-      const marker = activePoint.markers.find((candidate) => candidate.line === line)
-      if (marker) callbacks.onAuthorMarkerTap?.(marker, activePoint)
+      const marker = activeMarkers.find((candidate) => candidate.line === line)
+      const owner = semanticPointsFor(activePoint).find((candidate) => candidate.markers?.includes(marker)) ?? activePoint
+      if (marker) callbacks.onAuthorMarkerTap?.(marker, owner, activePoint)
       return
     }
 
-    // 使用独立的零部件出题范围；前方若有明显遮挡，仍禁止穿透设置到内腔。
+    // 只采用射线的第一层可见表面，再在当前标准站位内解析具体零部件。
+    // 这样同一站位可依次在弹簧、制动盘、轮对等不同部件上设置故障，且不会穿透到内腔。
     const hits = raycaster.intersectObject(locomotiveRoot, true)
-    const hit = selectAuthoringHit(hits, activePoint.authoringBox ?? activePoint.geometryBox)
+    const visibleHit = hits[0]
+    const targetPoint = activePoint.isStationPoint
+      ? resolveStationPart(activePoint, visibleHit?.point, 0.30)
+      : activePoint
+    const hit = targetPoint
+      ? selectAuthoringHit(hits, targetPoint.authoringBox ?? targetPoint.geometryBox, 0.045, 0.30)
+      : null
     if (!hit) {
-      callbacks.onToast?.('请点击当前零部件的可见外表面')
+      callbacks.onToast?.('该位置不属于当前站位的可出题零部件，请点击可见的轮对、轴箱、悬挂或制动部件表面')
       return
     }
     let normal = hit.face
       ? hit.face.normal.clone().transformDirection(hit.object.matrixWorld).normalize()
-      : activePoint.surfaceNormal?.clone?.() ?? new THREE.Vector3(0, 0, 1)
+      : targetPoint.surfaceNormal?.clone?.() ?? new THREE.Vector3(0, 0, 1)
     const towardCamera = camera.position.clone().sub(hit.point).normalize()
     if (normal.dot(towardCamera) < 0) normal.negate()
     let tangent = new THREE.Vector3(1, 0, 0).applyQuaternion(camera.quaternion)
@@ -1108,16 +1137,16 @@ export function createInspectionScene(container, callbacks = {}) {
     if (tangent.lengthSq() < 1e-6) tangent = new THREE.Vector3().crossVectors(normal, new THREE.Vector3(0, 1, 0))
     tangent.normalize()
     const surfacePoint = hit.point.clone()
-    const faultType = callbacks.getAuthorFaultType?.(activePoint)
+    const faultType = callbacks.getAuthorFaultType?.(targetPoint)
     if (!faultType) {
       callbacks.onToast?.('该检查点尚未配置可用的故障类型')
       return
     }
     const record = {
-      faultId: `F-${activePoint.id}`,
-      pointId: activePoint.id,
-      partId: activePoint.part?.partId ?? '',
-      itemId: activePoint.itemId ?? activePoint.item?.id ?? '',
+      faultId: `F-${targetPoint.id}`,
+      pointId: targetPoint.id,
+      partId: targetPoint.part?.partId ?? '',
+      itemId: targetPoint.itemId ?? targetPoint.item?.id ?? '',
       faultType,
       anchor: {
         position: surfacePoint.toArray(),
@@ -1126,21 +1155,21 @@ export function createInspectionScene(container, callbacks = {}) {
       },
       glyph: { size: 0.072 },
     }
-    removePointMarkers(activePoint)
-    const marker = createFaultMarkerFromRecord(activePoint, record)
+    removePointMarkers(targetPoint)
+    const marker = createFaultMarkerFromRecord(targetPoint, record)
     if (!marker) return
     const vertices = conformMarkerGeometry({
       marker,
       modelRoot: locomotiveRoot,
-      authoringBox: activePoint.authoringBox ?? activePoint.geometryBox,
+      authoringBox: targetPoint.authoringBox ?? targetPoint.geometryBox,
       baseNormal: normal,
       raycaster,
     })
     if (vertices.length) record.anchor.vertices = vertices
-    activePoint.hasScenarioFault = true
-    activePoint.markers.push(marker)
+    targetPoint.hasScenarioFault = true
+    targetPoint.markers.push(marker)
     markerGroup.add(marker.line, marker.proxy)
-    callbacks.onAuthorFaultPlaced?.(record, activePoint, marker)
+    callbacks.onAuthorFaultPlaced?.(record, targetPoint, marker, activePoint)
   }
   renderer.domElement.addEventListener('pointerup', onInspectPointerUp)
   const onInspectPointerCancel = () => { authorTapStart = null }
@@ -1162,7 +1191,7 @@ export function createInspectionScene(container, callbacks = {}) {
     pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1
     raycaster.setFromCamera(pointer, camera)
     const hit = raycaster.intersectObject(markerPickMesh, false)[0]
-    const point = hit?.instanceId == null ? null : inspectionPoints[hit.instanceId]
+    const point = hit?.instanceId == null ? null : interactionPoints[hit.instanceId]
     if (point) handlePointTap(point)
   }
   renderer.domElement.addEventListener('pointerdown', onRoamPointerDown)
@@ -1175,9 +1204,7 @@ export function createInspectionScene(container, callbacks = {}) {
       marker.line.material.color.setHex(0x5cff9c)
       marker.line.material.opacity = 1
     }
-    if (activePoint) {
-      activePoint.found = activePoint.markers.filter((m) => m.found).length
-    }
+    if (activePoint) activePoint.found = markersForPoint(activePoint).filter((m) => m.found).length
   }
 
   /** 重置所有故障标记：恢复颜色与透明度，清空 found 状态（用于清空重检） */
@@ -1378,6 +1405,9 @@ export function createInspectionScene(container, callbacks = {}) {
     markFound,
     resetMarkers,
     getInspectionPoints: () => inspectionPoints,
+    getStationPoints: () => stationPoints,
+    getInteractionPoints: () => interactionPoints,
+    getMarkersForPoint: (point) => markersForPoint(point),
     getFaultStats: () => {
       const points = inspectionPoints.filter((p) => p.hasScenarioFault)
       return {

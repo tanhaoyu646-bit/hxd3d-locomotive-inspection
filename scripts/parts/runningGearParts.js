@@ -315,6 +315,28 @@ export const PART_TYPE_DEFS = Object.freeze({
       abnormal: ['闸片磨耗到限', '制动缸行程超限', '夹钳裂纹', '风管漏泄'],
     },
   },
+  brakeDisc: {
+    label: '轮装制动盘及盘面',
+    shortLabel: '制动盘',
+    itemId: 'bogie-6',
+    // 制动盘位于车轮内侧，盘面与车轮同轴；横向位置比轮对外表面更靠近轨道中心。
+    dx: 0, dy: 0.135 + MEASURED.wheelRadius, dz: MEASURED.gaugeHalf - 0.16,
+    partType: 'brake',
+    view: { dist: 2.0, pitch: -0.18 },
+    approach: { maxDistance: 2.9, facing: 0.5 },
+    allowCrouch: true, requireCrouch: false,
+    proxy: [0.22, 1.04, 0.16],
+    occluders: ['wheelset', 'brakeUnit'],
+    judge: {
+      pass: '制动盘盘面无裂纹、烧损和异常磨耗，紧固件齐全无松动，夹钳与盘面间隙正常',
+      faults: [
+        { faultType: 'crack', count: 1 },
+        { faultType: 'burn', count: 1 },
+        { faultType: 'loose-bolt', count: 1 },
+      ],
+      abnormal: ['制动盘裂纹', '盘面烧损', '制动盘紧固件松动', '盘面异常磨耗'],
+    },
+  },
   pipeFastener: {
     label: '管路、紧固件与防松状态',
     shortLabel: '管路与防松件',
@@ -431,7 +453,7 @@ export function buildRunningGearParts() {
 
   // 轮对、轴箱、一系悬挂和基础制动均按六根轴独立建交互锚点。
   // 旧版每台转向架只建一个中心点，导致三根轴都被吸附到转向架中心。
-  const perAxleTypes = new Set(['wheelset', 'axlebox', 'primarySpring', 'brakeUnit'])
+  const perAxleTypes = new Set(['wheelset', 'axlebox', 'primarySpring', 'brakeDisc', 'brakeUnit'])
   const axleOffsets = [MEASURED.axleSpacing, 0, -MEASURED.axleSpacing]
 
   // 1) 转向架 × 左右侧 的常规部件

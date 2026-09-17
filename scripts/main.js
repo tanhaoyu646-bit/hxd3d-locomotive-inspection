@@ -14,8 +14,8 @@ import {
   INSPECTION_ROUTES as ALL_INSPECTION_ROUTES,
   METHOD_LABELS,
   LEVEL_LABELS,
-} from './inspectionData.js'
-import { createInspectionScene } from './sceneController.js'
+} from './inspectionData.js?v=1.4.0'
+import { createInspectionScene } from './sceneController.js?v=1.4.0'
 import { FAULT_TYPES, matchFaultType } from './partInspection.js'
 import { getRunningGearItemIds, getRunningGearParts } from './parts/runningGearParts.js'
 import { createInspectionFlow } from './inspectionFlow.js'
@@ -31,7 +31,7 @@ import {
   updateScenarioFaultType,
   removeLastScenarioFault,
   lockPeerScenario,
-} from './peerScenario.js'
+} from './peerScenario.js?v=1.4.0'
 
 const STORAGE_PREFIX = 'hxd3d-inspection-session-v3'
 const PROFILE_KEY = 'hxd3d-inspection-last-profile-v1'
@@ -66,6 +66,8 @@ let expandedAll = false
 let modelSourceLabel = '加载中'
 let activePoint = null       // 当前检视的检查点
 let pendingMarker = null     // 待判定的故障标记
+let pendingPoint = null      // 待填报标记所属的具体语义零部件（可不同于当前标准站位）
+let authorTargetPoint = null // 出题工具栏当前对应的具体零部件
 let preInspectMode = 'scene' // 进入检视前的模式（退出时返回）
 let contextItemId = null     // 漫游中当前靠近/正在检视的部件，只在右侧展示它的要点
 let sessionTimer = null
@@ -395,6 +397,16 @@ function pointTotalForItem(itemId) {
   const points = scene?.getInspectionPoints?.() ?? []
   return points.filter((p) => (p.itemId ?? p.item?.id) === itemId && !p.isRouteEntry).length || 1
 }
+
+function semanticPointsIn(point = activePoint) {
+  if (!point) return []
+  return point.isStationPoint ? (point.stationParts ?? []) : [point]
+}
+
+function markersIn(point = activePoint) {
+  return scene?.getMarkersForPoint?.(point)
+    ?? semanticPointsIn(point).flatMap((candidate) => candidate.markers ?? [])
+}
 function faultTotalForItem(itemId) {
   const points = scene?.getInspectionPoints?.() ?? []
   return points.filter((p) => (p.itemId ?? p.item?.id) === itemId)
@@ -511,13 +523,15 @@ function startInspection(item, route) {
 
 function onInspectEnter(point) {
   activePoint = point
+  pendingPoint = null
+  authorTargetPoint = point.isStationPoint ? (point.stationParts?.[0] ?? null) : point
   setContextItem(point.itemId ?? point.item?.id)
   pendingMarker = null
   if (isAuthoring()) {
-    authorFaultType = point.markers?.[0]?.faultType ?? firstFaultType(point)
+    authorFaultType = markersIn(point)?.[0]?.faultType ?? firstFaultType(authorTargetPoint)
     $('inspect-panel').style.display = 'none'
     $('inspect-result-trigger').style.display = 'none'
-    updateAuthorToolbar(point)
+    updateAuthorToolbar(authorTargetPoint)
     if (point.isRouteEntry) showToast('该点是安全确认入口，不用设置故障')
     return
   }
@@ -545,7 +559,9 @@ function onInspectEnter(point) {
     prepareInspectResultTrigger(point)
     return
   }
-  $('inspect-title').textContent = `${point.route.shortName} · ${point.item.name}`
+  $('inspect-title').textContent = point.isStationPoint
+    ? point.stationLabel
+    : `${point.route.shortName} · ${point.item.name}`
   $('inspect-hint').textContent = ''
   updateInspectProgress()
   // 故障符号说明暂时保留在 DOM 中，当前训练界面不显示。
@@ -557,8 +573,9 @@ function onInspectEnter(point) {
 
 function updateInspectProgress() {
   if (!activePoint) return
-  const total = activePoint.markers.length
-  const found = activePoint.markers.filter((m) => m.found).length
+  const markers = markersIn(activePoint)
+  const total = markers.length
+  const found = markers.filter((m) => m.found).length
   $('inspect-progress').textContent = `${found} / ${total}`
   if (total && found === total) {
     $('inspect-status').textContent = '本部位故障已全部发现'
@@ -571,6 +588,7 @@ function updateInspectProgress() {
 
 function onMarkerPick(marker, point) {
   pendingMarker = marker
+  pendingPoint = point
   const part = point.part
   $('report-locomotive').value ||= 'HXD3D 0004'
   const practice = state.profile?.mode !== 'assessment'
@@ -626,7 +644,7 @@ function isPeerAnswering() {
   return state.profile?.mode === 'peer' && peerScenario?.status === 'locked'
 }
 
-function updateAuthorToolbar(point = activePoint) {
+function updateAuthorToolbar(point = authorTargetPoint ?? activePoint) {
   const toolbar = $('author-toolbar')
   if (!toolbar) return
   if (!isAuthoring() || !document.body.classList.contains('session-running')) {
@@ -641,7 +659,7 @@ function updateAuthorToolbar(point = activePoint) {
   $('author-type').textContent = allowed.length ? `故障类型：${label}` : label
   $('author-type').disabled = !allowed.length || !point || point.isRouteEntry || scene?.getMode?.() !== 'inspect'
   $('author-point').textContent = point && scene?.getMode?.() === 'inspect'
-    ? `${point.part?.shortName ?? point.item?.name ?? '检查点'}：${allowed.length ? '点击外表面放置，点击标记切换类型' : '请更换为已配置故障类型的检查点'}`
+    ? `${point.part?.shortName ?? point.item?.name ?? '检查点'}：${allowed.length ? '点击任一可见零部件表面即可独立放置' : '请点击站位内其他已配置部件'}`
     : '走到标准站位并进入零部件检视'
   $('author-undo').disabled = !(peerScenario?.faults?.length)
 }
@@ -663,7 +681,7 @@ function scoreFaultReport(report, expected) {
 
 function submitFaultReport(event) {
   event?.preventDefault?.()
-  if (!pendingMarker || !activePoint) { showToast('请先点击三维画面中的故障标记'); return }
+  if (!pendingMarker || !pendingPoint || !activePoint) { showToast('请先点击三维画面中的故障标记'); return }
   const end = normalizeEnd($('report-end').value)
   const side = $('report-side').value
   const axleRaw = $('report-axle').value.trim()
@@ -682,25 +700,33 @@ function submitFaultReport(event) {
     innerOuter: $('report-inner-outer').value,
     faultType, faultLabel: FAULT_TYPES[faultType].label,
   }
-  report.accuracy = scoreFaultReport(report, expectedFaultReport(activePoint, pendingMarker))
+  report.accuracy = scoreFaultReport(report, expectedFaultReport(pendingPoint, pendingMarker))
   const matched = matchFaultType(faultType, pendingMarker.faultType)
   if (state.profile?.mode !== 'assessment' && !matched.matched) {
     showFeedback(false, '标记判断不符', '请根据当前标记的形态和所在零部件重新选择故障类型')
     return
   }
   scene?.markFound?.(pendingMarker)
-  if (activePoint.isPartPoint) {
-    scene?.getPartFSM?.()?.observeMarker(activePoint.part.partId, `${activePoint.id}:${pendingMarker.faultType}`)
+  if (pendingPoint.isPartPoint) {
+    scene?.getPartFSM?.()?.observeMarker(pendingPoint.part.partId, `${pendingPoint.id}:${pendingMarker.faultType}`)
   }
-  recordFaultFound(activePoint, report)
+  recordFaultFound(pendingPoint, report)
   showFeedback(true, '故障已上报', state.profile?.mode === 'assessment' ? '本次填报已记录，将在成绩单中统一评定。' : composeFaultReport(report))
   pendingMarker = null
+  pendingPoint = null
   $('fault-report-form').style.display = 'none'
   updateInspectProgress()
   refreshProgress()
   renderRouteList()
-  // 一处物理部件只布置一枚故障；填报完成即完成该部件检查并返回漫游。
-  exitInspect()
+  // 同一标准站位可能有多处、分属不同零部件的故障；全部找完前保持当前视角。
+  const remaining = markersIn(activePoint).filter((marker) => !marker.found).length
+  if (remaining > 0 && activePoint.isStationPoint) {
+    showToast(`本检查站位还有 ${remaining} 处故障待查，可继续旋转检视`)
+    $('inspect-panel').style.display = 'none'
+    prepareInspectResultTrigger(activePoint)
+  } else {
+    exitInspect()
+  }
   maybeFinishTraining()
 }
 
@@ -753,6 +779,8 @@ function exitInspect() {
   }
   activePoint = null
   pendingMarker = null
+  pendingPoint = null
+  authorTargetPoint = null
   $('fault-report-form').style.display = 'none'
   $('inspect-reference').style.display = 'none'
   $('inspect-result-trigger').style.display = 'none'
@@ -766,7 +794,8 @@ function exitInspect() {
 /** 检视面板内直接记录合格/异常，闭环 8 步状态机（移动端友好） */
 function decideFromInspect(action) {
   if (!activePoint) return
-  const foundMarkers = activePoint.markers?.filter((m) => m.found).length ?? 0
+  const stationMarkers = markersIn(activePoint)
+  const foundMarkers = stationMarkers.filter((m) => m.found).length
   if (foundMarkers > 0) {
     showToast('本部件已上报故障，不能再确认未见异常')
     return
@@ -781,33 +810,37 @@ function decideFromInspect(action) {
     maybeFinishTraining()
     return
   }
-  const item = activePoint.item
-  const prev = state.items[item.id] ?? {}
-  const partRecords = {
-    ...(prev.partRecords ?? {}),
-    [activePoint.id]: {
-      status: action,
-      faultsTotal: activePoint.markers?.length ?? 0,
-      faultsFound: foundMarkers,
+  const judgedPoints = semanticPointsIn(activePoint)
+  for (const point of judgedPoints) {
+    const item = point.item
+    if (!item) continue
+    const prev = state.items[item.id] ?? {}
+    const partFound = point.markers?.filter((m) => m.found).length ?? 0
+    const partRecords = {
+      ...(prev.partRecords ?? {}),
+      [point.id]: {
+        status: action,
+        faultsTotal: point.markers?.length ?? 0,
+        faultsFound: partFound,
+        time: formatNow(),
+      },
+    }
+    const records = Object.values(partRecords)
+    state.items[item.id] = {
+      ...prev,
+      status: records.some((rec) => rec.status === 'ng') ? 'ng' : action,
+      partRecords,
+      faultsTotal: records.reduce((sum, rec) => sum + (rec.faultsTotal ?? 0), 0),
+      faultsFound: records.reduce((sum, rec) => sum + (rec.faultsFound ?? 0), 0),
       time: formatNow(),
-    },
-  }
-  const records = Object.values(partRecords)
-  state.items[item.id] = {
-    ...prev,
-    status: records.some((rec) => rec.status === 'ng') ? 'ng' : action,
-    partRecords,
-    faultsTotal: records.reduce((sum, rec) => sum + (rec.faultsTotal ?? 0), 0),
-    faultsFound: records.reduce((sum, rec) => sum + (rec.faultsFound ?? 0), 0),
-    time: formatNow(),
+    }
   }
   saveState()
   // 同步 FSM 运行时（走行部零部件）
   const fsm = scene?.getPartFSM?.()
-  if (fsm && activePoint.isPartPoint) {
-    fsm.judge(activePoint.part.partId, { status: action })
-  }
-  showToast(action === 'ok' ? `已确认合格：${item.name}` : `已登记异常：${item.name}`)
+  if (fsm && activePoint.isPartPoint) fsm.judge(activePoint.part.partId, { status: action })
+  const judgedLabel = activePoint.stationLabel ?? activePoint.item?.name ?? '当前部件'
+  showToast(action === 'ok' ? `已确认合格：${judgedLabel}` : `已登记异常：${judgedLabel}`)
   refreshProgress()
   renderRouteList()
   renderRouteDetail()
@@ -1307,6 +1340,7 @@ function init() {
   $('fault-report-form').addEventListener('submit', submitFaultReport)
   $('fault-report-cancel').addEventListener('click', () => {
     pendingMarker = null
+    pendingPoint = null
     $('fault-report-form').style.display = 'none'
   })
   $('session-enter').addEventListener('click', beginSession)
@@ -1325,15 +1359,16 @@ function init() {
     }
   })
   $('author-type').addEventListener('click', () => {
-    if (!isAuthoring() || !activePoint || scene?.getMode?.() !== 'inspect') return
-    authorFaultType = nextFaultType(activePoint, authorFaultType)
-    updateAuthorToolbar(activePoint)
+    const point = authorTargetPoint ?? activePoint
+    if (!isAuthoring() || !point || scene?.getMode?.() !== 'inspect') return
+    authorFaultType = nextFaultType(point, authorFaultType)
+    updateAuthorToolbar(point)
   })
   $('author-undo').addEventListener('click', () => {
     if (!isAuthoring()) return
     peerScenario = removeLastScenarioFault(peerScenario)
     scene?.configureScenario?.('author', peerScenario)
-    updateAuthorToolbar(activePoint)
+    updateAuthorToolbar(authorTargetPoint ?? activePoint)
     showToast('已撤销上一处故障')
   })
   $('author-finish').addEventListener('click', finishAuthoring)
@@ -1364,7 +1399,7 @@ function init() {
       $('loading-bar').style.width = '100%'
       $('loading-text').textContent = '三维模型加载完成 · 100%'
       scene.buildPoints(INSPECTION_ROUTES)
-      const pts = scene.getInspectionPoints()
+      const pts = scene.getInteractionPoints?.() ?? scene.getInspectionPoints()
       $('foot-point').textContent = `${pts.length} 个`
       refreshProgress()
       selectRoute(currentRouteIndex, { focus: false })
@@ -1412,7 +1447,12 @@ function init() {
       setMode('inspect')
       onInspectEnter(point)
     },
-    onInspectExit: () => { activePoint = null; pendingMarker = null },
+    onInspectExit: () => {
+      activePoint = null
+      pendingMarker = null
+      pendingPoint = null
+      authorTargetPoint = null
+    },
     onMarkerPick: (marker, point) => onMarkerPick(marker, point),
     getAuthorFaultType: (point) => {
       const allowed = allowedFaultTypes(point)
@@ -1421,6 +1461,7 @@ function init() {
     onAuthorFaultPlaced: (record, point) => {
       peerScenario = upsertScenarioFault(peerScenario, record)
       authorFaultType = record.faultType
+      authorTargetPoint = point
       updateAuthorToolbar(point)
       showToast(`已在${point.part?.shortName ?? point.item?.name ?? '部件'}外表面设置故障`)
     },
@@ -1432,6 +1473,7 @@ function init() {
       const type = nextFaultType(point, marker.faultType)
       peerScenario = updateScenarioFaultType(peerScenario, marker.faultId, type)
       authorFaultType = type
+      authorTargetPoint = point
       scene?.configureScenario?.('author', peerScenario)
       updateAuthorToolbar(point)
       showToast(`已切换为：${FAULT_TYPES[type]?.label ?? type}`)

@@ -27,7 +27,7 @@ export const INSPECTION_META = {
   spec: '交流传动 · 六轴 · 干线客运',
   title: '机车检查作业',
   subtitle: 'LOCOMOTIVE INSPECTION OPERATION',
-  version: 'V1.3.1 · 同伴出题版',
+  version: 'V1.4.0 · 标准站位出题版',
   keyFacts: [
     { label: '额定功率', value: '7,200 kW' },
     { label: '最高运营速度', value: '160 km/h' },

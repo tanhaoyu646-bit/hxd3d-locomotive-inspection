@@ -6,6 +6,7 @@ const PICK_PADDING = Object.freeze({
   axlebox: [0.28, 0.28, 0.30],
   primarySpring: [0.30, 0.42, 0.30],
   brakeUnit: [0.30, 0.30, 0.28],
+  brakeDisc: [0.26, 0.24, 0.24],
   damper: [0.36, 0.34, 0.28],
   tractionRod: [0.34, 0.28, 0.28],
   pipeFastener: [0.30, 0.30, 0.28],

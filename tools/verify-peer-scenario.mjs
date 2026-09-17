@@ -56,10 +56,22 @@ check('可切换故障类型', scenario.faults[0].faultType === 'loose-bolt')
 check('切换类型后清除旧轮廓顶点', !scenario.faults[0].anchor.vertices)
 check('草稿可从本机恢复', loadPeerScenario()?.faults?.length === 1)
 
+const secondPointFault = {
+  ...baseFault,
+  faultId: 'F-rg-axle-1-left-brakeDisc',
+  pointId: 'rg-axle-1-left-brakeDisc',
+  partId: 'rg-axle-1-left-brakeDisc',
+  itemId: 'bogie-6',
+  faultType: 'burn',
+  anchor: { ...baseFault.anchor, position: [4.4, 5.5, 6.6] },
+}
+scenario = upsertScenarioFault(scenario, secondPointFault)
+check('同一观测站位的不同零部件可各保留一处故障', scenario.faults.length === 2)
+
 scenario = lockPeerScenario(scenario)
 check('题目可锁定交给答题人', scenario?.status === 'locked')
 const unchanged = removeLastScenarioFault(scenario)
-check('锁定后不能删改答案', unchanged.faults.length === 1)
+check('锁定后不能删改答案', unchanged.faults.length === 2)
 
 console.log(`\n同伴出题状态断言通过 ${passed} · 失败 ${failed}`)
 if (failed) process.exit(1)
