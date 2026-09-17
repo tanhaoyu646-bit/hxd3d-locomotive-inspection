@@ -22,11 +22,13 @@ import { getRunningGearParts, getRunningGearItemIds } from './parts/runningGearP
 import { createPartInteractionFSM } from './parts/partInteractionFSM.js'
 import { buildItemIndex } from './inspectionData.js'
 import { SCENARIO_FAULT_POINT_IDS } from './faultScenario.js'
+import { createAuthoringBox, selectAuthoringHit, conformMarkerGeometry, configureInspectOrbit } from './authoringSurface.js'
 import {
   buildInspectionPoints,
   buildPartPoints,
   paintFaultMarkersOnModel,
   paintFaultMarkersOnPart,
+  createFaultMarkerFromRecord,
   regionCenter,
   FAULT_KEYWORDS,
 } from './partInspection.js'
@@ -91,6 +93,15 @@ export function createInspectionScene(container, callbacks = {}) {
   orbitControls.maxDistance = 58
   orbitControls.maxPolarAngle = Math.PI * 0.92
   orbitControls.target.set(0, 2.2, 0)
+  const defaultOrbitLimits = {
+    enablePan: orbitControls.enablePan,
+    minDistance: orbitControls.minDistance,
+    maxDistance: orbitControls.maxDistance,
+    minPolarAngle: orbitControls.minPolarAngle,
+    maxPolarAngle: orbitControls.maxPolarAngle,
+    minAzimuthAngle: orbitControls.minAzimuthAngle,
+    maxAzimuthAngle: orbitControls.maxAzimuthAngle,
+  }
 
   // ── 灯光 ──
   scene.add(new THREE.HemisphereLight(0xbde8f3, 0x1e2a35, 0.96))
@@ -160,6 +171,9 @@ export function createInspectionScene(container, callbacks = {}) {
   let runningGearRoute = null   // 走行部路由（零部件检查点归属）
   let nearKey = null            // 当前 near-hint 关键字，避免每帧重复回调 UI
   let roamTapStart = null       // 漫游点按：区分点击检查点与拖拽转向
+  let authorTapStart = null     // 出题点按：区分表面落点与 OrbitControls 拖动
+  let scenarioMode = 'default'  // default | author | peer
+  let scenarioData = null
   const clock = new THREE.Clock()
   const gltfLoader = new GLTFLoader()
   const raycaster = new THREE.Raycaster()
@@ -438,7 +452,6 @@ export function createInspectionScene(container, callbacks = {}) {
     regionPoints.forEach(calibrateRegionAnchor)
     partPoints.forEach(calibratePartAnchor)
     inspectionPoints = [...regionPoints, ...partPoints]
-    inspectionPoints.forEach((p) => { p.hasScenarioFault = SCENARIO_FAULT_POINT_IDS.has(p.id) })
 
     // ── 环节入口点：升弓电气检查（车外安全确认）──
     // 车顶高压设备在出勤整备中无法登顶检视（需停电验电挂地线），原 roof 环节
@@ -475,9 +488,58 @@ export function createInspectionScene(container, callbacks = {}) {
 
     // 检查点标记改为两个 InstancedMesh（178 次绘制调用 → 2 次）
     buildMarkerInstances()
-    // 在漫游时就可看到极小的假设故障符号，但只布置在本轮指定的独立零部件上。
-    inspectionPoints.filter((p) => p.hasScenarioFault).forEach(activatePointFaults)
+    configureScenario(scenarioMode, scenarioData)
     return inspectionPoints
+  }
+
+  function clearFaultMarkers() {
+    markerGroup.children.slice().forEach((child) => {
+      markerGroup.remove(child)
+      child.geometry?.dispose?.()
+      child.material?.dispose?.()
+    })
+    inspectionPoints.forEach((point) => {
+      point.markers = []
+      point.found = 0
+      point.hasScenarioFault = false
+    })
+  }
+
+  /** 在默认题库、同伴出题、同伴答题之间切换。三种模式共享同一套检查点。 */
+  function configureScenario(nextMode = 'default', nextScenario = null) {
+    scenarioMode = ['author', 'peer'].includes(nextMode) ? nextMode : 'default'
+    scenarioData = nextScenario ?? null
+    if (!inspectionPoints.length) return
+    clearFaultMarkers()
+    if (scenarioMode === 'default') {
+      inspectionPoints.forEach((point) => {
+        point.hasScenarioFault = SCENARIO_FAULT_POINT_IDS.has(point.id)
+      })
+      inspectionPoints.filter((point) => point.hasScenarioFault).forEach(activatePointFaults)
+      return
+    }
+    for (const record of scenarioData?.faults ?? []) {
+      const point = inspectionPoints.find((candidate) => candidate.id === record.pointId)
+      if (!point || point.isRouteEntry) continue
+      const marker = createFaultMarkerFromRecord(point, record)
+      if (!marker) continue
+      if (scenarioMode === 'author' && !record.anchor?.vertices?.length) {
+        const vertices = conformMarkerGeometry({
+          marker,
+          modelRoot: locomotiveRoot,
+          authoringBox: point.authoringBox ?? point.geometryBox,
+          baseNormal: marker.normal,
+          raycaster,
+        })
+        if (vertices.length) {
+          record.anchor.vertices = vertices
+          callbacks.onAuthorFaultGeometry?.(record, point)
+        }
+      }
+      point.hasScenarioFault = true
+      point.markers.push(marker)
+      markerGroup.add(marker.line, marker.proxy)
+    }
   }
 
   /** 区域检查点的外部朝向。端部优先正对车头/车尾，其余按车体左右外侧。 */
@@ -503,6 +565,8 @@ export function createInspectionScene(container, callbacks = {}) {
     raycaster.set(origin, outward.clone().negate())
     raycaster.far = 9
     const box = point.geometryBox.clone().expandByScalar(0.025)
+    point.authoringBox = box.clone()
+    point.orbitTarget = box.getCenter(new THREE.Vector3())
     const hit = raycaster.intersectObject(locomotiveRoot, true).find((h) => box.containsPoint(h.point))
     if (!hit) return
     const normal = hit.face
@@ -531,6 +595,9 @@ export function createInspectionScene(container, callbacks = {}) {
       center.clone().add(new THREE.Vector3(sx / 2, sy / 2, sz / 2)),
     ).expandByScalar(0.16)
     point.geometryBox = box
+    point.authoringBox = createAuthoringBox(part) ?? box.clone()
+    // 检视必须围绕零部件中心旋转，不能围绕外表面锚点旋转。
+    point.orbitTarget = center.clone()
 
     const outboard = new THREE.Vector3(0, 0, -1)
     if (part.side === 'right') outboard.set(0, 0, 1)
@@ -783,10 +850,25 @@ export function createInspectionScene(container, callbacks = {}) {
       offsetDir.y += 0.22
       offsetDir.normalize()
     }
-    const target = point.interactionTarget?.clone?.() ?? point.position.clone()
+    const target = point.orbitTarget?.clone?.()
+      ?? point.interactionTarget?.clone?.()
+      ?? point.position.clone()
     const position = target.clone().addScaledVector(offsetDir, dist)
-    startCameraMove({ position, target }, { duration: instant ? 0 : 820, instant })
+    // 标准观测点：固定旋转中心、禁止平移，并把缩放限制在部件附近。
+    // 检视/出题均允许绕零部件完整一周，才能观察轴向背面。
+    configureInspectOrbit(orbitControls, dist)
+    startCameraMove({ position, target }, {
+      duration: instant ? 0 : 820,
+      instant,
+      onDone: () => {
+        orbitControls.update()
+      },
+    })
     return true
+  }
+
+  function restoreOrbitLimits() {
+    Object.assign(orbitControls, defaultOrbitLimits)
   }
 
   // ── 模式 ──
@@ -797,6 +879,7 @@ export function createInspectionScene(container, callbacks = {}) {
       orbitControls.enabled = true
     }
     if (mode === 'inspect') {
+      restoreOrbitLimits()
       activePoint = null
       callbacks.onInspectExit?.()
     }
@@ -938,6 +1021,17 @@ export function createInspectionScene(container, callbacks = {}) {
   // ── 拾取：点击故障标记 ──
   function onInspectPointerDown(event) {
     if (mode !== 'inspect' || !activePoint) return
+    if (scenarioMode === 'author') {
+      if (event.button > 0) return
+      authorTapStart = {
+        id: event.pointerId,
+        pointerType: event.pointerType || 'mouse',
+        x: event.clientX,
+        y: event.clientY,
+        time: performance.now(),
+      }
+      return
+    }
     const rect = renderer.domElement.getBoundingClientRect()
     pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1
     pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1
@@ -953,6 +1047,104 @@ export function createInspectionScene(container, callbacks = {}) {
     }
   }
   renderer.domElement.addEventListener('pointerdown', onInspectPointerDown)
+
+  function removePointMarkers(point) {
+    for (const marker of point?.markers ?? []) {
+      markerGroup.remove(marker.line, marker.proxy)
+      marker.line?.geometry?.dispose?.(); marker.line?.material?.dispose?.()
+      marker.proxy?.geometry?.dispose?.(); marker.proxy?.material?.dispose?.()
+    }
+    if (point) {
+      point.markers = []
+      point.found = 0
+      point.hasScenarioFault = false
+    }
+  }
+
+  function onInspectPointerUp(event) {
+    if (!authorTapStart || authorTapStart.id !== event.pointerId) return
+    const start = authorTapStart
+    authorTapStart = null
+    if (mode !== 'inspect' || scenarioMode !== 'author' || !activePoint) return
+    const dx = event.clientX - start.x
+    const dy = event.clientY - start.y
+    const touch = start.pointerType === 'touch' || start.pointerType === 'pen'
+    const maxMove = touch ? 18 : 9
+    const maxDuration = touch ? 900 : 650
+    if (dx * dx + dy * dy > maxMove * maxMove || performance.now() - start.time > maxDuration) return
+    if (activePoint.isRouteEntry) {
+      callbacks.onToast?.('安全确认入口不能设置假设故障')
+      return
+    }
+
+    const rect = renderer.domElement.getBoundingClientRect()
+    pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1
+    pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1
+    raycaster.setFromCamera(pointer, camera)
+
+    // 点击已有标记时循环该零部件允许的故障类型，不再重复叠加标记。
+    const markerHit = raycaster.intersectObjects(activePoint.markers.map((marker) => marker.proxy), false)[0]
+    if (markerHit) {
+      const line = markerHit.object.userData.marker
+      const marker = activePoint.markers.find((candidate) => candidate.line === line)
+      if (marker) callbacks.onAuthorMarkerTap?.(marker, activePoint)
+      return
+    }
+
+    // 使用独立的零部件出题范围；前方若有明显遮挡，仍禁止穿透设置到内腔。
+    const hits = raycaster.intersectObject(locomotiveRoot, true)
+    const hit = selectAuthoringHit(hits, activePoint.authoringBox ?? activePoint.geometryBox)
+    if (!hit) {
+      callbacks.onToast?.('请点击当前零部件的可见外表面')
+      return
+    }
+    let normal = hit.face
+      ? hit.face.normal.clone().transformDirection(hit.object.matrixWorld).normalize()
+      : activePoint.surfaceNormal?.clone?.() ?? new THREE.Vector3(0, 0, 1)
+    const towardCamera = camera.position.clone().sub(hit.point).normalize()
+    if (normal.dot(towardCamera) < 0) normal.negate()
+    let tangent = new THREE.Vector3(1, 0, 0).applyQuaternion(camera.quaternion)
+    tangent.addScaledVector(normal, -tangent.dot(normal))
+    if (tangent.lengthSq() < 1e-6) tangent = new THREE.Vector3().crossVectors(normal, new THREE.Vector3(0, 1, 0))
+    tangent.normalize()
+    const surfacePoint = hit.point.clone()
+    const faultType = callbacks.getAuthorFaultType?.(activePoint)
+    if (!faultType) {
+      callbacks.onToast?.('该检查点尚未配置可用的故障类型')
+      return
+    }
+    const record = {
+      faultId: `F-${activePoint.id}`,
+      pointId: activePoint.id,
+      partId: activePoint.part?.partId ?? '',
+      itemId: activePoint.itemId ?? activePoint.item?.id ?? '',
+      faultType,
+      anchor: {
+        position: surfacePoint.toArray(),
+        normal: normal.toArray(),
+        tangent: tangent.toArray(),
+      },
+      glyph: { size: 0.072 },
+    }
+    removePointMarkers(activePoint)
+    const marker = createFaultMarkerFromRecord(activePoint, record)
+    if (!marker) return
+    const vertices = conformMarkerGeometry({
+      marker,
+      modelRoot: locomotiveRoot,
+      authoringBox: activePoint.authoringBox ?? activePoint.geometryBox,
+      baseNormal: normal,
+      raycaster,
+    })
+    if (vertices.length) record.anchor.vertices = vertices
+    activePoint.hasScenarioFault = true
+    activePoint.markers.push(marker)
+    markerGroup.add(marker.line, marker.proxy)
+    callbacks.onAuthorFaultPlaced?.(record, activePoint, marker)
+  }
+  renderer.domElement.addEventListener('pointerup', onInspectPointerUp)
+  const onInspectPointerCancel = () => { authorTapStart = null }
+  renderer.domElement.addEventListener('pointercancel', onInspectPointerCancel)
 
   function onRoamPointerDown(event) {
     if (mode !== 'roam' || event.button > 0 || document.pointerLockElement === renderer.domElement) return
@@ -1158,6 +1350,8 @@ export function createInspectionScene(container, callbacks = {}) {
     orbitControls.dispose()
     playerController?.dispose()
     renderer.domElement.removeEventListener('pointerdown', onInspectPointerDown)
+    renderer.domElement.removeEventListener('pointerup', onInspectPointerUp)
+    renderer.domElement.removeEventListener('pointercancel', onInspectPointerCancel)
     renderer.domElement.removeEventListener('pointerdown', onRoamPointerDown)
     renderer.domElement.removeEventListener('pointerup', onRoamPointerUp)
     hideHighlight()
@@ -1178,6 +1372,8 @@ export function createInspectionScene(container, callbacks = {}) {
     setMode,
     getMode: () => mode,
     buildPoints,
+    configureScenario,
+    getScenarioMode: () => scenarioMode,
     inspectItem,
     markFound,
     resetMarkers,

@@ -227,11 +227,12 @@ function findExteriorSurface(modelRoot, point, box, direction, raycaster) {
  * 故障符号以线框叠加在模型表面：避免改变原 GLB，同时用形状区分不同故障。
  * line=线条、triangle=三角、ring=环形、cross=叉形；颜色仍由故障类别决定。
  */
-function createFaultGlyph({ surfacePoint, normal, tangent, length, color, shape = 'line' }) {
+export function createFaultGlyph({ surfacePoint, normal, tangent, length, color, shape = 'line' }) {
   const n = normal.clone().normalize()
   const t = tangent.clone().normalize()
   const b = new THREE.Vector3().crossVectors(n, t).normalize()
-  const lift = (v) => v.addScaledVector(n, 0.006)
+  // 仅保留 2.5mm 防闪烁偏移；旧版累计抬升约 18mm，会明显悬浮在部件前方。
+  const lift = (v) => v.addScaledVector(n, 0.0025)
   let points
   let Type = THREE.Line
 
@@ -291,6 +292,80 @@ function createFaultGlyph({ surfacePoint, normal, tangent, length, color, shape 
     new THREE.BufferGeometry().setFromPoints(points),
     new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.98, depthTest: true }),
   )
+}
+
+/**
+ * 根据同伴出题记录重建一枚故障标记。记录使用固定模型的世界表面坐标，
+ * 同时保留零部件/检查点语义编号；模型版本不匹配时由题目层拒绝载入。
+ */
+export function createFaultMarkerFromRecord(point, record) {
+  if (!point || !record?.anchor?.position || !record?.anchor?.normal) return null
+  const resolved = resolveFaultSpec({ faultType: record.faultType })
+  const surfacePoint = new THREE.Vector3(...record.anchor.position)
+  const normal = new THREE.Vector3(...record.anchor.normal).normalize()
+  let tangent = record.anchor.tangent
+    ? new THREE.Vector3(...record.anchor.tangent)
+    : new THREE.Vector3(1, 0, 0)
+  tangent.addScaledVector(normal, -tangent.dot(normal))
+  if (tangent.lengthSq() < 1e-6) {
+    const helper = Math.abs(normal.x) < 0.9 ? new THREE.Vector3(1, 0, 0) : new THREE.Vector3(0, 1, 0)
+    tangent = new THREE.Vector3().crossVectors(normal, helper)
+  }
+  tangent.normalize()
+  const length = Number(record.glyph?.size) || 0.072
+  const line = createFaultGlyph({
+    surfacePoint,
+    normal,
+    tangent,
+    length,
+    color: resolved.color,
+    shape: resolved.shape,
+  })
+  const storedVertices = record.anchor.vertices
+  const position = line.geometry?.getAttribute?.('position')
+  if (position && Array.isArray(storedVertices) && storedVertices.length === position.count * 3) {
+    for (let i = 0; i < position.count; i += 1) {
+      position.setXYZ(i, storedVertices[i * 3], storedVertices[i * 3 + 1], storedVertices[i * 3 + 2])
+    }
+    position.needsUpdate = true
+    line.geometry.computeBoundingBox?.()
+    line.geometry.computeBoundingSphere?.()
+  }
+  line.renderOrder = 20
+  line.userData = {
+    isFaultMarker: true,
+    colorType: resolved.colorType,
+    faultType: resolved.faultType,
+    keywords: resolved.keywords,
+    label: resolved.label,
+    shape: resolved.shape,
+    pointId: point.id,
+    partId: point.part?.partId ?? '',
+    faultId: record.faultId,
+    found: false,
+  }
+  const proxy = new THREE.Mesh(
+    new THREE.SphereGeometry(0.14, 8, 8),
+    new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false }),
+  )
+  proxy.position.copy(surfacePoint)
+  proxy.renderOrder = 21
+  proxy.userData = { isFaultProxy: true, marker: line }
+  return {
+    faultId: record.faultId,
+    line,
+    proxy,
+    normal: normal.clone(),
+    tangent: tangent.clone(),
+    surfacePoint: surfacePoint.clone(),
+    color: resolved.color,
+    colorType: resolved.colorType,
+    faultType: resolved.faultType,
+    label: resolved.label,
+    keywords: resolved.keywords,
+    shape: resolved.shape,
+    found: false,
+  }
 }
 
 /**

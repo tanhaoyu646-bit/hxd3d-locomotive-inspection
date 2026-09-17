@@ -1,6 +1,6 @@
 {
-  "name": "HXD3D 机车检查作业",
-  "short_name": "机车检查",
+  "name": "HXD3D 机车检查作业·同伴出题版",
+  "short_name": "同伴出题检查",
   "display": "standalone",
   "start_url": "./",
   "background_color": "#06111d",

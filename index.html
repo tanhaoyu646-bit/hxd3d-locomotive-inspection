@@ -6,9 +6,9 @@
   <meta name="theme-color" content="#06111d" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-  <title>机车检查作业系统 · HXD3D型电力机车</title>
-  <link rel="manifest" href="manifest.webmanifest" />
-  <link rel="stylesheet" href="styles/inspection.css" />
+  <title>机车检查作业系统 · 同伴出题版</title>
+  <link rel="manifest" href="manifest.webmanifest?v=1.3.1" />
+  <link rel="stylesheet" href="styles/inspection.css?v=1.3.1" />
   <script type="importmap">
   {
     "imports": {
@@ -42,7 +42,7 @@
     <!-- 顶部系统栏 -->
     <header class="system-topbar">
       <div class="system-title-plate">
-        <strong>机车检查作业系统</strong>
+        <strong>机车检查作业系统·同伴出题版</strong>
         <span id="title-sub">LOCOMOTIVE INSPECTION OPERATION · V1.0</span>
       </div>
 
@@ -260,6 +260,18 @@
       <small id="loading-text">正在加载三维模型</small>
     </div>
 
+    <!-- 同伴出题：只在出题模式显示，点击模型外表面落点，点击已有标记切换类型。 -->
+    <section class="author-toolbar" id="author-toolbar" style="display:none" aria-label="同伴出题工具">
+      <div class="author-copy">
+        <strong id="author-title">同伴出题</strong>
+        <span id="author-point">请先进入一个零部件检视点</span>
+      </div>
+      <button id="author-type" class="author-type" type="button">故障类型：裂纹</button>
+      <span class="author-count">已设置 <b id="author-count">0</b> 处</span>
+      <button id="author-undo" type="button">撤销上一处</button>
+      <button id="author-finish" class="primary" type="button">完成出题</button>
+    </section>
+
     <div class="session-gate" id="session-gate" style="display:none" role="dialog" aria-modal="true" aria-label="身份识别与选择实训台">
       <section class="session-card">
         <div class="session-head"><span>机车检查实训台 · 身份识别</span><b>训练模式</b></div>
@@ -270,7 +282,7 @@
           <label>工号/学号<input id="session-id" autocomplete="username" placeholder="请输入工号或学号" required></label>
           <label>班级/班组<input id="session-group" placeholder="如：机车2201班"></label>
           <label>实训设备<select id="session-device"><option>HXD3D 机车检查实训台 01</option><option>HXD3D 机车检查实训台 02</option></select></label>
-          <label>训练模式<select id="session-mode"><option value="practice">练习模式</option><option value="assessment">考评模式</option></select></label>
+          <label>训练模式<select id="session-mode"><option value="practice">练习模式</option><option value="assessment">考评模式</option><option value="author">同伴出题</option><option value="peer">同伴答题（需已有题目）</option></select></label>
           <label>机车型号<input value="HXD3D型电力机车" readonly></label>
         </div>
         <small class="session-tip" id="session-tip">三维模型将在进入前完成载入。</small>
@@ -301,6 +313,6 @@
     </div>
   </div>
 
-  <script type="module" src="scripts/main.js"></script>
+  <script type="module" src="scripts/main.js?v=1.3.1"></script>
 </body>
 </html>

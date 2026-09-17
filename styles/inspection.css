@@ -571,6 +571,27 @@ body.mobile-controls-enabled.session-running .mobile-fullscreen { display: none 
 .inspect-result-trigger span { display: block; margin-top: 3px; color: #9ed0b5; font-size: 9px; letter-spacing: .04em; }
 .inspect-result-trigger:active { transform: scale(.96); }
 
+/* 同伴出题工具：单行小工具条，尽量保留部件检视视野。 */
+.author-toolbar {
+  position: absolute; left: 50%; bottom: 48px; z-index: 69;
+  transform: translateX(-50%); align-items: center; gap: 8px;
+  width: min(760px, calc(100vw - 36px)); min-height: 48px; padding: 7px 9px;
+  border: 1px solid rgba(73, 180, 255, .48); border-radius: 9px;
+  color: #d9efff; background: rgba(4, 22, 39, .92);
+  box-shadow: 0 10px 30px rgba(0, 5, 14, .55); backdrop-filter: blur(10px);
+}
+.author-copy { min-width: 154px; display: grid; gap: 2px; }
+.author-copy strong { font-size: 12px; color: #fff; letter-spacing: .08em; }
+.author-copy span { max-width: 230px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #84a9c4; font-size: 9px; }
+.author-toolbar button {
+  min-height: 34px; padding: 6px 10px; border: 1px solid rgba(83, 167, 224, .45); border-radius: 6px;
+  color: #cbeaff; background: rgba(15, 62, 95, .72); font: inherit; font-size: 10px; cursor: pointer;
+}
+.author-toolbar button.primary { border-color: rgba(74, 255, 157, .55); color: #e4fff0; background: rgba(15, 104, 67, .78); }
+.author-toolbar .author-type { min-width: 140px; color: #fff6c4; border-color: rgba(255, 199, 82, .5); }
+.author-count { margin-left: auto; white-space: nowrap; color: #91b3cb; font-size: 10px; }
+.author-count b { color: #5cff9c; font-size: 13px; }
+
 /* ═══════════════ 部件检视浮窗 ═══════════════ */
 .part-viewport-shell {
   position: absolute; top: 84px; right: 18px; z-index: 35; width: clamp(420px, 32vw, 560px);
@@ -884,4 +905,6 @@ body.mobile-controls-enabled .touch-controls {
   .touch-controls .virtual-buttons { bottom:calc(58px + env(safe-area-inset-bottom, 0px)); }
   .status-footer #footer-session { position:absolute; right:10px; bottom:42px; padding:4px 7px; border:1px solid rgba(56,168,255,.25); border-radius:4px; background:rgba(3,14,27,.78); }
   .session-card { width:min(500px,calc(100vw - 80px)); max-height:calc(var(--vvh,100vh) - 18px); overflow:auto; padding:12px 18px; }.session-card h1{font-size:17px}.session-card>p{margin:5px 0 9px}.session-form{gap:6px}.session-form input,.session-form select{height:29px}.session-tip{margin:7px 0}.session-enter{height:34px}
+  .author-toolbar { left:calc(50% - 30px); bottom:calc(8px + env(safe-area-inset-bottom)); width:min(650px,calc(100vw - 300px)); min-height:42px; padding:5px 7px; gap:5px; }
+  .author-copy { min-width:112px; }.author-copy span{max-width:150px}.author-toolbar button{min-height:32px;padding:5px 7px;font-size:9px}.author-toolbar .author-type{min-width:118px}.author-count{font-size:9px}
 }

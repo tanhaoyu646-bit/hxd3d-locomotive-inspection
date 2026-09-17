@@ -20,6 +20,18 @@ import { FAULT_TYPES, matchFaultType } from './partInspection.js'
 import { getRunningGearItemIds, getRunningGearParts } from './parts/runningGearParts.js'
 import { createInspectionFlow } from './inspectionFlow.js'
 import { computeScore } from './scoring.js'
+import {
+  createPeerScenario,
+  loadPeerScenario,
+  savePeerScenario,
+  allowedFaultTypes,
+  firstFaultType,
+  nextFaultType,
+  upsertScenarioFault,
+  updateScenarioFaultType,
+  removeLastScenarioFault,
+  lockPeerScenario,
+} from './peerScenario.js'
 
 const STORAGE_PREFIX = 'hxd3d-inspection-session-v3'
 const PROFILE_KEY = 'hxd3d-inspection-last-profile-v1'
@@ -60,6 +72,8 @@ let sessionTimer = null
 let landscapeRequest = null
 let roamHintShown = false
 let trainingChromeTimer = null
+let peerScenario = loadPeerScenario()
+let authorFaultType = 'crack'
 
 // 检查流程显式状态机（skill 约束 1）：阶段推进 + 完成判定
 const flow = createInspectionFlow(INSPECTION_ROUTES, {
@@ -372,7 +386,10 @@ function refreshProgress() {
   $('foot-time').textContent = state.startTime || '—'
   $('foot-model').textContent = modelSourceLabel
   const profile = state.profile ?? {}
-  $('footer-session').title = `${profile.name || state.operator} · ${profile.id || '未登记'} · ${profile.group || '未填写班级'} · ${profile.mode === 'assessment' ? '考评模式' : '练习模式'}`
+  const footerMode = profile.mode === 'assessment' ? '考评模式'
+    : profile.mode === 'author' ? '同伴出题'
+      : profile.mode === 'peer' ? '同伴答题' : '练习模式'
+  $('footer-session').title = `${profile.name || state.operator} · ${profile.id || '未登记'} · ${profile.group || '未填写班级'} · ${footerMode}`
 }
 function pointTotalForItem(itemId) {
   const points = scene?.getInspectionPoints?.() ?? []
@@ -496,6 +513,14 @@ function onInspectEnter(point) {
   activePoint = point
   setContextItem(point.itemId ?? point.item?.id)
   pendingMarker = null
+  if (isAuthoring()) {
+    authorFaultType = point.markers?.[0]?.faultType ?? firstFaultType(point)
+    $('inspect-panel').style.display = 'none'
+    $('inspect-result-trigger').style.display = 'none'
+    updateAuthorToolbar(point)
+    if (point.isRouteEntry) showToast('该点是安全确认入口，不用设置故障')
+    return
+  }
   const ref = $('inspect-reference')
   const refItem = point.item
   if (refItem?.points?.length) {
@@ -590,6 +615,35 @@ function expectedFaultReport(point, marker) {
     innerOuter: p.side === 'left' || p.side === 'right' ? '外侧' : '',
     faultType: marker.faultType,
   }
+  updateAuthorToolbar()
+}
+
+function isAuthoring() {
+  return state.profile?.mode === 'author' && peerScenario?.status === 'draft'
+}
+
+function isPeerAnswering() {
+  return state.profile?.mode === 'peer' && peerScenario?.status === 'locked'
+}
+
+function updateAuthorToolbar(point = activePoint) {
+  const toolbar = $('author-toolbar')
+  if (!toolbar) return
+  if (!isAuthoring() || !document.body.classList.contains('session-running')) {
+    toolbar.style.display = 'none'
+    return
+  }
+  toolbar.style.display = 'flex'
+  $('author-count').textContent = String(peerScenario?.faults?.length ?? 0)
+  const allowed = point && !point.isRouteEntry ? allowedFaultTypes(point) : []
+  if (allowed.length && !allowed.includes(authorFaultType)) authorFaultType = allowed[0]
+  const label = allowed.length ? (FAULT_TYPES[authorFaultType]?.label ?? authorFaultType) : '该部件暂不支持出题'
+  $('author-type').textContent = allowed.length ? `故障类型：${label}` : label
+  $('author-type').disabled = !allowed.length || !point || point.isRouteEntry || scene?.getMode?.() !== 'inspect'
+  $('author-point').textContent = point && scene?.getMode?.() === 'inspect'
+    ? `${point.part?.shortName ?? point.item?.name ?? '检查点'}：${allowed.length ? '点击外表面放置，点击标记切换类型' : '请更换为已配置故障类型的检查点'}`
+    : '走到标准站位并进入零部件检视'
+  $('author-undo').disabled = !(peerScenario?.faults?.length)
 }
 function scoreFaultReport(report, expected) {
   const fields = [
@@ -706,6 +760,7 @@ function exitInspect() {
   $('inspect-panel').style.display = 'none'
   // 返回进入检视前的模式（漫游或场景）
   setMode(preInspectMode)
+  updateAuthorToolbar(null)
 }
 
 /** 检视面板内直接记录合格/异常，闭环 8 步状态机（移动端友好） */
@@ -778,8 +833,11 @@ function renderReport({ final = false } = {}) {
     })
   })
   $('report-sub').textContent = ` · ${INSPECTION_META.locomotive} · ${state.sessionId}`
+  const modeLabel = state.profile?.mode === 'assessment' ? '考评模式'
+    : state.profile?.mode === 'peer' ? '同伴答题'
+      : state.profile?.mode === 'author' ? '同伴出题' : '练习模式'
   $('report-note').innerHTML =
-    `检查人：${state.operator} · 工号/学号：${state.profile?.id || '—'} · 班级/班组：${state.profile?.group || '—'} · ${state.profile?.mode === 'assessment' ? '考评模式' : '练习模式'} · 开始时间：${state.startTime}` +
+    `检查人：${state.operator} · 工号/学号：${state.profile?.id || '—'} · 班级/班组：${state.profile?.group || '—'} · ${modeLabel} · 开始时间：${state.startTime}` +
     (state.finishedAt ? ` · 结束时间：${state.finishedAt} · ${state.finishReason}` : '') +
     `<br>${INSPECTION_META.disclaimer}`
 
@@ -1080,14 +1138,52 @@ function openSessionGate() {
   $('session-tip').textContent = window.__sceneReady ? '三维模型已就绪，可以进入训练。' : '正在载入三维模型，请稍候。'
   $('session-enter').disabled = !window.__sceneReady
   $('session-gate').style.display = 'grid'
+  updateAuthorToolbar(null)
+}
+
+function finishAuthoring() {
+  if (!isAuthoring()) return
+  if (!(peerScenario?.faults?.length)) {
+    showToast('至少需要设置 1 处假设性故障')
+    return
+  }
+  peerScenario = lockPeerScenario(peerScenario)
+  if (!peerScenario) return
+  if (scene?.getMode?.() === 'inspect') exitInspect()
+  scene?.releasePlayerLock?.()
+  state.profile = {
+    ...(state.profile ?? {}),
+    name: '', id: '', group: '', mode: 'peer',
+  }
+  openSessionGate()
+  $('session-name').value = ''
+  $('session-id').value = ''
+  $('session-group').value = ''
+  $('session-mode').value = 'peer'
+  $('session-tip').textContent = `题目已锁定：共 ${peerScenario.faults.length} 处故障。请由答题同学填写身份信息后进入。`
 }
 
 function beginSession() {
   const name = $('session-name').value.trim()
   const id = $('session-id').value.trim()
   if (!name || !id) { $('session-tip').textContent = '请填写学员姓名和工号/学号。'; return }
-  state.profile = { name, id, group: $('session-group').value.trim(), device: $('session-device').value, mode: $('session-mode').value }
+  const selectedMode = $('session-mode').value
+  if (selectedMode === 'peer' && peerScenario?.status !== 'locked') {
+    $('session-tip').textContent = '当前没有已完成的同伴题目，请先选择“同伴出题”。'
+    return
+  }
+  state.profile = { name, id, group: $('session-group').value.trim(), device: $('session-device').value, mode: selectedMode }
   state.operator = name
+  $('btn-report').textContent = selectedMode === 'author' ? '完成出题' : '提交作业'
+  if (selectedMode === 'author') {
+    if (peerScenario?.status !== 'draft') peerScenario = savePeerScenario(createPeerScenario(state.profile))
+    scene?.configureScenario?.('author', peerScenario)
+  } else if (selectedMode === 'peer') {
+    peerScenario = loadPeerScenario()
+    scene?.configureScenario?.('peer', peerScenario)
+  } else {
+    scene?.configureScenario?.('default', null)
+  }
   // 仍在 click 用户手势栈内请求横屏；iPhone Safari 若拒绝锁定，会保留旋转提示，不阻塞登录。
   document.body.classList.remove('session-entry')
   document.body.classList.add('session-running')
@@ -1104,7 +1200,15 @@ function beginSession() {
   scene?.resetMarkers?.()
   $('session-gate').style.display = 'none'
   updateSessionTimer(); renderRouteList(); renderRouteDetail(); refreshProgress()
-  showToast(state.profile.mode === 'assessment' ? '考评模式已开始：填报结果将在成绩单中统一评分。' : '练习模式已开始：可通过故障填报进行学习。')
+  updateAuthorToolbar(null)
+  const startMessage = selectedMode === 'author'
+    ? '同伴出题已开始：到达检查站位，进入检视后点击零部件外表面。'
+    : selectedMode === 'peer'
+      ? `同伴答题已开始：本题共 ${peerScenario.faults.length} 处假设故障。`
+      : selectedMode === 'assessment'
+        ? '考评模式已开始：填报结果将在成绩单中统一评分。'
+        : '练习模式已开始：可通过故障填报进行学习。'
+  showToast(startMessage)
 }
 
 // ───────────────────────── 启动 ─────────────────────────
@@ -1146,7 +1250,10 @@ function init() {
     if (!res.ok) { showToast(res.reason); return }
     selectRoute(res.stage, { focus: true })
   })
-  $('btn-report').addEventListener('click', renderReport)
+  $('btn-report').addEventListener('click', () => {
+    if (isAuthoring()) finishAuthoring()
+    else renderReport()
+  })
   $('report-close').addEventListener('click', () => { $('report-mask').style.display = 'none' })
   $('btn-export').addEventListener('click', exportRecord)
   $('btn-print').addEventListener('click', () => window.print())
@@ -1203,6 +1310,33 @@ function init() {
     $('fault-report-form').style.display = 'none'
   })
   $('session-enter').addEventListener('click', beginSession)
+  $('session-mode').addEventListener('change', () => {
+    const mode = $('session-mode').value
+    if (mode === 'peer') {
+      $('session-tip').textContent = peerScenario?.status === 'locked'
+        ? `已有同伴题目，共 ${peerScenario.faults.length} 处故障。`
+        : '尚无同伴题目，请先选择“同伴出题”。'
+    } else if (mode === 'author') {
+      $('session-tip').textContent = peerScenario?.status === 'draft'
+        ? `检测到未完成草稿，已设置 ${peerScenario.faults.length} 处，进入后继续出题。`
+        : '出题同学将在标准检查站位上设置假设性故障。'
+    } else {
+      $('session-tip').textContent = '三维模型已就绪，可以进入训练。'
+    }
+  })
+  $('author-type').addEventListener('click', () => {
+    if (!isAuthoring() || !activePoint || scene?.getMode?.() !== 'inspect') return
+    authorFaultType = nextFaultType(activePoint, authorFaultType)
+    updateAuthorToolbar(activePoint)
+  })
+  $('author-undo').addEventListener('click', () => {
+    if (!isAuthoring()) return
+    peerScenario = removeLastScenarioFault(peerScenario)
+    scene?.configureScenario?.('author', peerScenario)
+    updateAuthorToolbar(activePoint)
+    showToast('已撤销上一处故障')
+  })
+  $('author-finish').addEventListener('click', finishAuthoring)
   // 未点击故障标记时只保留“确认未见异常”。
   $('inspect-ok').addEventListener('click', () => decideFromInspect('ok'))
   // Esc 退出检视（桌面端）
@@ -1280,6 +1414,28 @@ function init() {
     },
     onInspectExit: () => { activePoint = null; pendingMarker = null },
     onMarkerPick: (marker, point) => onMarkerPick(marker, point),
+    getAuthorFaultType: (point) => {
+      const allowed = allowedFaultTypes(point)
+      return allowed.includes(authorFaultType) ? authorFaultType : allowed[0]
+    },
+    onAuthorFaultPlaced: (record, point) => {
+      peerScenario = upsertScenarioFault(peerScenario, record)
+      authorFaultType = record.faultType
+      updateAuthorToolbar(point)
+      showToast(`已在${point.part?.shortName ?? point.item?.name ?? '部件'}外表面设置故障`)
+    },
+    onAuthorFaultGeometry: (record) => {
+      // 切换故障类型后，sceneController 会重新按曲面投影顶点；同步保存新几何。
+      peerScenario = upsertScenarioFault(peerScenario, record)
+    },
+    onAuthorMarkerTap: (marker, point) => {
+      const type = nextFaultType(point, marker.faultType)
+      peerScenario = updateScenarioFaultType(peerScenario, marker.faultId, type)
+      authorFaultType = type
+      scene?.configureScenario?.('author', peerScenario)
+      updateAuthorToolbar(point)
+      showToast(`已切换为：${FAULT_TYPES[type]?.label ?? type}`)
+    },
     onModeChange: () => {},
   })
 

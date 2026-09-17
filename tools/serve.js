@@ -25,7 +25,6 @@ import { exec } from 'node:child_process'
 import { toTerminal } from './qrcode.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
-const APP_DIR_NAME = '机车检查作业'
 const DEFAULT_PORT = 8777
 
 // ── 参数解析 ──
@@ -93,12 +92,12 @@ function resolveRoot() {
     'hxd3d-integration-spatial.glb',
   )
   if (path.basename(parentDir) === '资源' && fs.existsSync(sharedModel)) {
-    return { root: parentDir, base: '', modelOk: true }
+    return { root: parentDir, appPath: `/${encodeURIComponent(path.basename(appDir))}/index.html`, modelOk: true }
   }
-  return { root: appDir, base: '', modelOk: false }
+  return { root: appDir, appPath: '/index.html', modelOk: fs.existsSync(path.join(appDir, 'models', 'hxd3d-integration-spatial.glb')) }
 }
 
-const { root, modelOk } = resolveRoot()
+const { root, appPath, modelOk } = resolveRoot()
 
 const server = http.createServer((req, res) => {
   let pathname
@@ -109,7 +108,7 @@ const server = http.createServer((req, res) => {
     return
   }
   if (pathname === '/' || pathname === '') {
-    res.writeHead(302, { Location: `/${encodeURIComponent(APP_DIR_NAME)}/index.html` })
+    res.writeHead(302, { Location: appPath })
     res.end()
     return
   }
@@ -148,8 +147,7 @@ const server = http.createServer((req, res) => {
 })
 
 server.listen(port, host, () => {
-  const APP_PATH = `/${encodeURIComponent(APP_DIR_NAME)}/index.html`
-  const localUrl = `http://localhost:${port}${APP_PATH}`
+  const localUrl = `http://localhost:${port}${appPath}`
   const lanAddresses = host === '0.0.0.0' ? getLanAddresses() : []
 
   console.log('')
@@ -160,13 +158,13 @@ server.listen(port, host, () => {
   console.log('  端口       :', port)
   console.log('  监听       :', host === '0.0.0.0' ? '0.0.0.0（允许局域网设备访问）' : host + '（仅本机）')
   console.log('  站点根目录 :', root)
-  console.log('  三维模型   :', modelOk ? '引用原孪生平台（可用）' : '未找到，将尝试本目录 models/ 下的副本')
+  console.log('  三维模型   :', modelOk ? '模型文件可用' : '未找到可用模型')
   console.log('')
   console.log('  ── 访问地址 ──────────────────────────────────────────')
   console.log('  电脑端 :', localUrl)
   if (lanAddresses.length) {
     lanAddresses.forEach((ip) => {
-      console.log('  手机端 :', `http://${ip}:${port}${APP_PATH}`)
+      console.log('  手机端 :', `http://${ip}:${port}${appPath}`)
     })
     console.log('')
     console.log('  （手机需与电脑连接同一个 Wi-Fi；若无法访问请检查系统防火墙）')
@@ -178,7 +176,7 @@ server.listen(port, host, () => {
 
   // 手机端二维码
   if (showQr && lanAddresses.length) {
-    const qrUrl = qrOverride ?? `http://${lanAddresses[0]}:${port}${APP_PATH}`
+    const qrUrl = qrOverride ?? `http://${lanAddresses[0]}:${port}${appPath}`
     console.log('  ── 手机扫码访问（' + lanAddresses[0] + '）──')
     try {
       console.log(toTerminal(qrUrl, { invert: true }))
