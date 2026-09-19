@@ -101,10 +101,10 @@ try {
   if (variant === 'peer') {
     check('出题工具栏已经显示', state.toolbar === 'flex', `display=${state.toolbar}`)
     check('新题目草稿已建立', state.mode === 'draft', `status=${state.mode}`)
-  } else {
+  } else if (variant === 'single') {
     check('单人版未混入出题工具栏', state.toolbar === null)
   }
-  check('页面载入当前修复版本', state.title.includes('V1.6.0'), state.title)
+  check('页面载入当前修复版本', state.title.includes(variant === 'single' ? 'V1.6.0' : 'V1.6.1'), state.title)
   const ui = await evaluate(`(() => ({
     confirmText: document.querySelector('#fault-report-form .fault-submit')?.textContent.trim(),
     inspectClose: document.getElementById('inspect-exit')?.textContent.trim(),
@@ -114,6 +114,29 @@ try {
   check('故障填报按钮统一为确定', ui.confirmText === '确定', ui.confirmText)
   check('部件检视仅保留独立叉号', ui.inspectClose === '×' && ui.duplicateButtons.length === 0)
   check('手机横屏比例测试视口生效', ui.viewport[0] > ui.viewport[1], ui.viewport.join('×'))
+  if (variant === 'report') {
+    const picked = await evaluate('window.__inspectionTest?.openFirstFaultReport()')
+    check('已进入带故障的零部件检视', Boolean(picked?.pointId), picked?.pointId)
+    check('点击假设性故障后填报窗口显示', Boolean(picked?.faultType), picked?.faultType)
+    await waitFor("getComputedStyle(document.getElementById('fault-report-form')).display !== 'none'", '故障填报窗口')
+    const submitted = await evaluate(`(() => {
+      document.getElementById('report-end').value ||= 'I端'
+      document.getElementById('report-side').value ||= '左侧'
+      document.getElementById('report-part').value ||= '检查部件'
+      const faultSelect = document.getElementById('report-fault-type')
+      const deliberatelyWrong = Array.from(faultSelect.options).map((option) => option.value)
+        .find((value) => value && value !== ${JSON.stringify(picked.faultType)})
+      faultSelect.value = deliberatelyWrong
+      document.getElementById('fault-report-form').requestSubmit()
+      return { submitted:true, expected:${JSON.stringify(picked.faultType)}, selected:deliberatelyWrong }
+    })()`)
+    check('已用错误故障类型点击确定', submitted.submitted && submitted.expected !== submitted.selected,
+      `${submitted.selected} / 正确 ${submitted.expected}`)
+    await wait(250)
+    const exited = await evaluate('window.__inspectionTest.currentView()')
+    check('故障填报后关闭右侧窗口并退出零部件视图', exited.sceneMode !== 'inspect' && exited.panel === 'none' && exited.form === 'none' && !exited.appInspect,
+      JSON.stringify(exited))
+  }
 } catch (error) {
   failed += 1
   console.error(`✗ 浏览器流程检查异常 · ${error.message}`)

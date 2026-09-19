@@ -14,9 +14,9 @@ import {
   INSPECTION_ROUTES as ALL_INSPECTION_ROUTES,
   METHOD_LABELS,
   LEVEL_LABELS,
-} from './inspectionData.js?v=1.6.0'
-import { createInspectionScene } from './sceneController.js?v=1.6.0'
-import { FAULT_TYPES, matchFaultType } from './partInspection.js'
+} from './inspectionData.js?v=1.6.1'
+import { createInspectionScene } from './sceneController.js?v=1.6.1'
+import { FAULT_TYPES } from './partInspection.js'
 import { getRunningGearItemIds, getRunningGearParts } from './parts/runningGearParts.js'
 import { createInspectionFlow } from './inspectionFlow.js'
 import { computeScore } from './scoring.js'
@@ -31,7 +31,7 @@ import {
   updateScenarioFaultType,
   removeLastScenarioFault,
   lockPeerScenario,
-} from './peerScenario.js?v=1.6.0'
+} from './peerScenario.js?v=1.6.1'
 
 const STORAGE_PREFIX = 'hxd3d-inspection-session-v3'
 const PROFILE_KEY = 'hxd3d-inspection-last-profile-v1'
@@ -703,17 +703,13 @@ function submitFaultReport(event) {
     faultType, faultLabel: FAULT_TYPES[faultType].label,
   }
   report.accuracy = scoreFaultReport(report, expectedFaultReport(pendingPoint, pendingMarker))
-  const matched = matchFaultType(faultType, pendingMarker.faultType)
-  if (state.profile?.mode !== 'assessment' && !matched.matched) {
-    showFeedback(false, '标记判断不符', '请根据当前标记的形态和所在零部件重新选择故障类型')
-    return
-  }
+  // 填报内容无论正误都作为本次作答记录；准确性由成绩单统一评分，不能把学员困在检视界面。
   scene?.markFound?.(pendingMarker)
   if (pendingPoint.isPartPoint) {
     scene?.getPartFSM?.()?.observeMarker(pendingPoint.part.partId, `${pendingPoint.id}:${pendingMarker.faultType}`)
   }
   recordFaultFound(pendingPoint, report)
-  showFeedback(true, '故障已上报', state.profile?.mode === 'assessment' ? '本次填报已记录，将在成绩单中统一评定。' : composeFaultReport(report))
+  showFeedback(true, '故障填报已记录', '已退出当前零部件检视，填报准确性将在成绩单中统一评定。')
   pendingMarker = null
   pendingPoint = null
   $('fault-report-form').style.display = 'none'
@@ -1521,6 +1517,26 @@ function init() {
 
   // 调试/自动化句柄
   window.__scene = scene
+  if (new URLSearchParams(location.search).has('browser-test')) {
+    window.__inspectionTest = {
+      openFirstFaultReport() {
+        const point = scene.getInspectionPoints().find((entry) =>
+          !entry.isPartPoint && !entry.isRouteEntry && entry.markers?.some((marker) => !marker.found) && entry.item)
+        if (!point || !scene.inspectItem(point.item, point.route)) return null
+        const marker = point.markers.find((entry) => !entry.found)
+        onMarkerPick(marker, point)
+        return { pointId: point.id, faultType: marker.faultType }
+      },
+      currentView() {
+        return {
+          sceneMode: scene.getMode(),
+          panel: getComputedStyle($('inspect-panel')).display,
+          form: getComputedStyle($('fault-report-form')).display,
+          appInspect: $('app').classList.contains('mode-inspect'),
+        }
+      },
+    }
+  }
 }
 
 init()
