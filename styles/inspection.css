@@ -650,24 +650,20 @@ body.mobile-controls-enabled.session-running .mobile-fullscreen { display: none 
   animation: slideInRight .3s cubic-bezier(.22, .7, .16, 1);
   transition: transform .24s ease, opacity .2s ease;
 }
-.inspect-collapse { position:absolute; right:52px; top:8px; z-index:3; width:30px; height:28px; border:1px solid rgba(56,168,255,.35); border-radius:4px; color:#dcefff; background:rgba(8,32,58,.96); font-size:20px; cursor:pointer; display:grid; place-items:center; }
-.inspect-panel.collapsed { transform:translateX(calc(100% - 42px)); }
-.inspect-panel.collapsed .inspect-head, .inspect-panel.collapsed .inspect-meta, .inspect-panel.collapsed .inspect-reference, .inspect-panel.collapsed .inspect-body, .inspect-panel.collapsed .inspect-foot { visibility:hidden; pointer-events:none; }
-.inspect-panel.collapsed .inspect-collapse { left:0; right:auto; top:0; width:42px; height:58px; border:0; border-right:1px solid rgba(56,168,255,.45); border-radius:8px 0 0 8px; font-size:27px; visibility:visible; }
 @keyframes slideInRight {
   from { opacity: 0; transform: translateX(30px); }
   to { opacity: 1; transform: translateX(0); }
 }
 .inspect-head {
-  display: flex; align-items: flex-start; gap: 12px; padding: 13px 14px;
+  display: flex; align-items: flex-start; justify-content:space-between; gap: 12px; padding: 11px 12px 11px 14px;
   border-bottom: 1px solid rgba(54, 126, 184, .28); border-radius: 8px 8px 0 0;
   background: linear-gradient(90deg, rgba(14, 51, 84, .7), rgba(6, 25, 47, .3));
 }
 .inspect-head strong { display: block; font-size: 13px; letter-spacing: .08em; color: #d8edff; }
 .inspect-head small { display: block; margin-top: 4px; font-size: 10px; line-height: 1.5; color: #6f92b2; }
 .inspect-exit {
-  flex: none; height: 28px; padding: 0 12px; border-radius: 4px; cursor: pointer;
-  border: 1px solid rgba(53, 123, 177, .4); color: #9dc0da; background: transparent; font-size: 11px;
+  flex:none; width:34px; height:34px; padding:0; border-radius:7px; cursor:pointer;
+  border:1px solid rgba(255,107,107,.55); color:#ffdede; background:rgba(74,20,28,.32); font-size:25px; line-height:1;
 }
 .inspect-exit:hover { border-color: #ff6b6b; color: #ffdede; background: rgba(90, 28, 28, .35); }
 
@@ -762,6 +758,7 @@ body.mobile-controls-enabled.session-running .mobile-fullscreen { display: none 
 
 /* 检视模式：右侧面板让位给检视面板 */
 .app-shell.mode-inspect .right-shell { transform: translateX(110%); opacity: 0; pointer-events: none; }
+.app-shell.mode-inspect .left-shell { transform: translateX(calc(-100% - 48px)); opacity:0; pointer-events:none; }
 .app-shell.mode-inspect .view-dock { opacity: 0; pointer-events: none; }
 
 @media (max-width: 920px) {
@@ -848,10 +845,13 @@ body.mobile-controls-enabled.session-running .mobile-fullscreen { display: none 
   .left-shell, .right-shell { bottom: 60px; max-height: 72vh; }
   /* 检视面板：横屏侧滑到右侧，不占满屏 */
   .inspect-panel {
-    top: 54px; bottom: 12px; right: calc(10px + env(safe-area-inset-right));
-    left: auto; width: min(380px, 44vw); height: auto;
+    top: 54px; bottom: calc(8px + env(safe-area-inset-bottom)); right: calc(8px + env(safe-area-inset-right));
+    left: auto; width: min(360px, 42vw); height: auto;
     max-height: none;
   }
+  .inspect-head{padding:7px 8px 7px 10px}.inspect-head strong{font-size:11px}.inspect-exit{width:32px;height:32px;font-size:23px}
+  .inspect-meta{padding:6px 10px}.inspect-body{padding:8px}.inspect-foot{padding:6px 10px}.inspect-foot small{font-size:8.5px;line-height:1.35}
+  .fault-report-form{gap:6px;padding:8px}.fault-form-grid{gap:5px}.fault-report-form input,.fault-report-form select{height:29px;font-size:10px}.fault-submit{height:32px}
   .inspect-result-trigger {
     right: calc(12px + env(safe-area-inset-right)); top: 58px;
     min-width: 96px; min-height: 40px; font-size: 10px;

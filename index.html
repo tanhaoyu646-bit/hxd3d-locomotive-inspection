@@ -7,8 +7,8 @@
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <title>机车检查作业系统 · 同伴出题版</title>
-  <link rel="manifest" href="manifest.webmanifest?v=1.5.0" />
-  <link rel="stylesheet" href="styles/inspection.css?v=1.5.0" />
+  <link rel="manifest" href="manifest.webmanifest?v=1.6.0" />
+  <link rel="stylesheet" href="styles/inspection.css?v=1.6.0" />
   <script type="importmap">
   {
     "imports": {
@@ -157,13 +157,12 @@
       检查结果<span>确认无异常</span>
     </button>
     <aside class="inspect-panel" id="inspect-panel" style="display:none">
-      <button class="inspect-collapse" id="inspect-toggle" type="button" aria-label="展开部件检视">‹</button>
       <div class="inspect-head">
         <div>
           <strong id="inspect-title">部件检视</strong>
           <small id="inspect-hint" style="display:none"></small>
         </div>
-        <button class="inspect-exit" id="inspect-exit">退出检视</button>
+        <button class="inspect-exit" id="inspect-exit" type="button" aria-label="确认未见异常并退出检视" title="未见异常并退出">×</button>
       </div>
 
         <div class="inspect-meta">
@@ -195,13 +194,12 @@
             <li><i class="glyph cross">×</i><b>白色叉号</b><span>螺栓松动</span></li>
             <li><i class="glyph triangle">△</i><b>白色三角</b><span>油、水、风管路滴漏</span></li>
           </ul>
-          <p class="iw-tip">未发现故障符号时，使用下方“确认未见异常”。</p>
+          <p class="iw-tip">未发现异常时，点击面板右上角叉号完成本部件检查。</p>
         </div>
 
         <form class="fault-report-form" id="fault-report-form" style="display:none">
           <div class="fault-form-head">
             <strong>填报故障活件</strong>
-            <button type="button" id="fault-report-cancel">取消</button>
           </div>
           <label><span>机车型号</span><input id="report-locomotive" value="HXD3D 0004" required /></label>
           <div class="fault-form-grid">
@@ -222,15 +220,12 @@
             <option value="leak">油、水、风管路滴漏</option>
             <option value="marking">标志、车号缺失或模糊</option>
           </select></label>
-          <button class="fault-submit" type="submit">上报故障</button>
+          <button class="fault-submit" type="submit">确定</button>
         </form>
       </div>
 
       <div class="inspect-foot">
-        <div class="inspect-decide">
-          <button class="act-btn pass" id="inspect-ok">✓ 确认未见异常</button>
-        </div>
-        <small>发现标记：点击标记并填写故障活件。未发现标记：确认未见异常。按 Esc 或点“退出检视”返回。</small>
+        <small>未发现故障时点右上角“×”完成本部件检查；发现故障时点击标记，填写后点“确定”。</small>
       </div>
     </aside>
 
@@ -313,6 +308,6 @@
     </div>
   </div>
 
-  <script type="module" src="scripts/main.js?v=1.5.0"></script>
+  <script type="module" src="scripts/main.js?v=1.6.0"></script>
 </body>
 </html>

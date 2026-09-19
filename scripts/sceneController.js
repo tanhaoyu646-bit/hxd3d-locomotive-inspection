@@ -18,17 +18,17 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js'
 import { DualPlayerController } from './player/DualPlayerController.js'
 import { createLocomotiveCollisionSystem } from './parts/LocomotiveCollisionSystem.js'
-import { getRunningGearParts, getRunningGearItemIds } from './parts/runningGearParts.js?v=1.5.0'
+import { getRunningGearParts, getRunningGearItemIds } from './parts/runningGearParts.js?v=1.6.0'
 import {
   buildRunningGearStations,
   semanticPointsFor,
   markersForPoint,
   resolveStationSurfaceHit,
-} from './parts/inspectionStations.js?v=1.5.0'
+} from './parts/inspectionStations.js?v=1.6.0'
 import { createPartInteractionFSM } from './parts/partInteractionFSM.js'
 import { buildItemIndex } from './inspectionData.js'
 import { SCENARIO_FAULT_POINT_IDS } from './faultScenario.js'
-import { createAuthoringBox, selectAuthoringHit, conformMarkerGeometry, configureInspectOrbit } from './authoringSurface.js?v=1.5.0'
+import { createAuthoringBox, selectAuthoringHit, conformMarkerGeometry, configureInspectOrbit } from './authoringSurface.js?v=1.6.0'
 import {
   buildInspectionPoints,
   buildPartPoints,
@@ -384,7 +384,7 @@ export function createInspectionScene(container, callbacks = {}) {
       color: 0xffffff, transparent: true, opacity: 0.42, side: THREE.DoubleSide, depthWrite: false,
     })
     // 只用于射线拾取的透明大命中面。视觉仍是小光点，手机不必精确点到 0.03m 的球心。
-    const pickGeo = new THREE.SphereGeometry(0.15, 10, 10)
+    const pickGeo = new THREE.SphereGeometry(0.24, 10, 10)
     const pickMat = new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.001, depthWrite: false })
     markerCoreMesh = new THREE.InstancedMesh(coreGeo, coreMat, count)
     markerRingMesh = new THREE.InstancedMesh(ringGeo, ringMat, count)
@@ -421,7 +421,7 @@ export function createInspectionScene(container, callbacks = {}) {
       _markerM4.compose(pos, _markerQ, _markerScale)
       markerRingMesh.setMatrixAt(i, _markerM4)
       // 拾取代理固定略大于显示光点，不随脉动改变可点击范围。
-      _markerScale.set(1.35, 1.35, 1.35)
+      _markerScale.set(1.25, 1.25, 1.25)
       _markerM4.compose(pos, _markerIdQ, _markerScale)
       markerPickMesh.setMatrixAt(i, _markerM4)
       // 颜色：已发现故障标记→绿；最近点→亮蓝；其余→常规蓝
@@ -584,7 +584,15 @@ export function createInspectionScene(container, callbacks = {}) {
     point.authoringBox = box.clone()
     point.orbitTarget = box.getCenter(new THREE.Vector3())
     const hit = raycaster.intersectObject(locomotiveRoot, true).find((h) => box.containsPoint(h.point))
-    if (!hit) return
+    if (!hit) {
+      const half = box.getSize(new THREE.Vector3()).multiplyScalar(0.5)
+      const radius = Math.abs(outward.x) * half.x + Math.abs(outward.y) * half.y + Math.abs(outward.z) * half.z
+      point.surfaceViewDirection = outward
+      point.surfaceAnchor = box.getCenter(new THREE.Vector3()).addScaledVector(outward, radius + 0.06)
+      point.interactionTarget = point.surfaceAnchor.clone()
+      point.position.copy(point.surfaceAnchor)
+      return
+    }
     const normal = hit.face
       ? hit.face.normal.clone().transformDirection(hit.object.matrixWorld).normalize()
       : outward.clone()
@@ -633,8 +641,12 @@ export function createInspectionScene(container, callbacks = {}) {
       point.interactionTarget = point.surfaceAnchor.clone()
       point.position.copy(point.surfaceAnchor)
     } else {
-      point.surfaceAnchor = null
-      point.interactionTarget = center.clone()
+      // 合并网格在极少数区域找不到严格命中面时，也不能把交互点留在零部件内部。
+      const half = point.authoringBox.getSize(new THREE.Vector3()).multiplyScalar(0.5)
+      const radius = Math.abs(outboard.x) * half.x + Math.abs(outboard.y) * half.y + Math.abs(outboard.z) * half.z
+      point.surfaceAnchor = point.authoringBox.getCenter(new THREE.Vector3()).addScaledVector(outboard, radius + 0.06)
+      point.interactionTarget = point.surfaceAnchor.clone()
+      point.position.copy(point.surfaceAnchor)
     }
   }
 
@@ -1003,7 +1015,9 @@ export function createInspectionScene(container, callbacks = {}) {
       return
     }
     if (point.isPartPoint) {
-      const ev = partFSM.evaluate(point, ctx)
+      // 点中可见光点本身已经证明朝向和视线成立；仍保留站位、距离和蹲下条件。
+      const tappedCtx = { ...ctx, forward: target.clone().sub(ctx.position).setY(0).normalize() }
+      const ev = partFSM.evaluate(point, tappedCtx, { skipOcclusion: true })
       if (!ev.canEnter) {
         callbacks.onToast?.(ev.unmet[0]?.detail || ev.stageMeta.hint || '请满足检查条件后再交互')
         return

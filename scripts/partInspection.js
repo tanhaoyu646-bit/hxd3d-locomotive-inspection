@@ -345,7 +345,8 @@ export function createFaultMarkerFromRecord(point, record) {
     found: false,
   }
   const proxy = new THREE.Mesh(
-    new THREE.SphereGeometry(0.14, 8, 8),
+    // 故障符号保持细小，但透明拾取球放大，保证手机端可可靠点中。
+    new THREE.SphereGeometry(0.22, 10, 10),
     new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false }),
   )
   proxy.position.copy(surfacePoint)
@@ -411,9 +412,8 @@ export function paintFaultMarkersOnModel(modelRoot, point, opts = {}) {
       found: false,
     }
 
-    // 拾取代理（略大、透明），便于点击
-    // 视觉符号仍保持细小，命中代理扩大到 14cm，便于手机单指点按。
-    const proxyGeo = new THREE.SphereGeometry(0.14, 8, 8)
+    // 视觉符号保持细小，透明命中代理扩大到 22cm，便于手机单指点按。
+    const proxyGeo = new THREE.SphereGeometry(0.22, 10, 10)
     const proxyMat = new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false })
     const proxy = new THREE.Mesh(proxyGeo, proxyMat)
     proxy.position.copy(surfacePoint)
@@ -511,7 +511,7 @@ export function paintFaultMarkersOnPart(modelRoot, point, opts = {}) {
     }
 
     const proxy = new THREE.Mesh(
-      new THREE.SphereGeometry(0.14, 8, 8),
+      new THREE.SphereGeometry(0.22, 10, 10),
       new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false }),
     )
     proxy.position.copy(surfacePoint)

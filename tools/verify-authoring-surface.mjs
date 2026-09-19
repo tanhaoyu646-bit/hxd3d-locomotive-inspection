@@ -44,10 +44,9 @@ console.error = originalError
 const root = gltf.scene
 root.updateMatrixWorld(true)
 const raycaster = new THREE.Raycaster()
-const representativeTypes = ['wheelset', 'axlebox', 'primarySpring', 'brakeDisc', 'brakeUnit', 'damper', 'tractionRod', 'sandBox', 'motorGearbox']
-for (const type of representativeTypes) {
-  const part = getRunningGearParts().find((item) => item.type === type && item.side === 'left')
-  if (!part) { check(`${type} 有代表实例`, false); continue }
+const allParts = getRunningGearParts()
+const surfaceFailures = []
+for (const part of allParts) {
   const center = new THREE.Vector3(part.centerWorld.x, part.centerWorld.y, part.centerWorld.z)
   const partBox = createAuthoringBox(part)
   const directions = []
@@ -74,8 +73,11 @@ for (const type of representativeTypes) {
   const detail = hit
     ? `方向 ${hitDirection + 1}，命中距离 ${hit.distance.toFixed(3)}m`
     : `未命中；最近表面距范围 ${(diagnostic?.nearestToBox?.distance ?? -1).toFixed(3)}m`
-  check(`${part.shortName}旋转检视至少一面可识别`, Boolean(hit), detail)
+  if (!hit) surfaceFailures.push(`${part.partId}(${part.shortName})：${detail}`)
 }
+check('全部走行部零部件至少有一面可设置故障', surfaceFailures.length === 0,
+  surfaceFailures.length ? `失败 ${surfaceFailures.length}/${allParts.length}` : `${allParts.length}/${allParts.length}`)
+if (surfaceFailures.length) surfaceFailures.forEach((entry) => console.error(`  - ${entry}`))
 
 // 3) 曲面逐顶点吸附：用球面模拟轮缘/端盖，所有点都应贴在曲面约 2.5mm 外。
 const sphere = new THREE.Mesh(new THREE.SphereGeometry(1, 48, 24), new THREE.MeshBasicMaterial())

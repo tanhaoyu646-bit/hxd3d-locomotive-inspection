@@ -14,8 +14,8 @@ import {
   INSPECTION_ROUTES as ALL_INSPECTION_ROUTES,
   METHOD_LABELS,
   LEVEL_LABELS,
-} from './inspectionData.js?v=1.5.0'
-import { createInspectionScene } from './sceneController.js?v=1.5.0'
+} from './inspectionData.js?v=1.6.0'
+import { createInspectionScene } from './sceneController.js?v=1.6.0'
 import { FAULT_TYPES, matchFaultType } from './partInspection.js'
 import { getRunningGearItemIds, getRunningGearParts } from './parts/runningGearParts.js'
 import { createInspectionFlow } from './inspectionFlow.js'
@@ -31,7 +31,7 @@ import {
   updateScenarioFaultType,
   removeLastScenarioFault,
   lockPeerScenario,
-} from './peerScenario.js?v=1.5.0'
+} from './peerScenario.js?v=1.6.0'
 
 const STORAGE_PREFIX = 'hxd3d-inspection-session-v3'
 const PROFILE_KEY = 'hxd3d-inspection-last-profile-v1'
@@ -461,7 +461,7 @@ function setMode(mode) {
   app.classList.remove('mode-scene', 'mode-roam', 'mode-inspect')
   app.classList.add(`mode-${mode}`)
   $('roam-hint').style.display = 'none'
-  // 检视面板不随进入检视自动展开：仅在发现故障或主动确认检查结果时打开。
+  // 检视面板在普通检查中直接展开；出题模式由专用工具栏接管。
   $('inspect-panel').style.display = 'none'
   $('inspect-result-trigger').style.display = 'none'
   if (mode !== 'inspect') $('inspect-panel').classList.remove('collapsed')
@@ -493,8 +493,6 @@ function setInspectPanelCollapsed(collapsed) {
   const panel = $('inspect-panel')
   if (!panel || panel.style.display === 'none') return
   panel.classList.toggle('collapsed', Boolean(collapsed))
-  $('inspect-toggle').textContent = collapsed ? '‹' : '›'
-  $('inspect-toggle').setAttribute('aria-label', collapsed ? '展开部件检视' : '收起部件检视')
 }
 
 /** 检视初始阶段不遮挡模型；只有要确认结果或已点到故障时才打开右侧窗口。 */
@@ -509,6 +507,12 @@ function prepareInspectResultTrigger(point) {
   const trigger = $('inspect-result-trigger')
   trigger.querySelector('span').textContent = point?.isRouteEntry ? '完成安全确认' : '确认无异常'
   trigger.style.display = 'grid'
+}
+
+function showInspectPanel() {
+  $('inspect-result-trigger').style.display = 'none'
+  $('inspect-panel').style.display = 'flex'
+  $('inspect-panel').classList.remove('collapsed')
 }
 
 // ───────────────────────── 检视流程 ─────────────────────────
@@ -555,8 +559,7 @@ function onInspectEnter(point) {
     const st = $('inspect-status')
     st.textContent = '请完成车外安全确认'
     st.className = 'inspect-status'
-    $('inspect-panel').style.display = 'none'
-    prepareInspectResultTrigger(point)
+    showInspectPanel()
     return
   }
   $('inspect-title').textContent = point.isStationPoint
@@ -567,8 +570,7 @@ function onInspectEnter(point) {
   // 故障符号说明暂时保留在 DOM 中，当前训练界面不显示。
   $('inspect-wait').style.display = 'none'
   $('fault-report-form').style.display = 'none'
-  $('inspect-panel').style.display = 'none'
-  prepareInspectResultTrigger(point)
+  showInspectPanel()
 }
 
 function updateInspectProgress() {
@@ -601,7 +603,7 @@ function onMarkerPick(marker, point) {
   $('report-fault-type').value = ''
   $('fault-report-form').style.display = 'grid'
   openInspectResultPanel()
-  $('report-end').focus()
+  if (!document.body.classList.contains('mobile-controls-enabled')) $('report-end').focus()
   showToast('已选中故障标记，请填写故障活件')
 }
 
@@ -718,15 +720,8 @@ function submitFaultReport(event) {
   updateInspectProgress()
   refreshProgress()
   renderRouteList()
-  // 同一标准站位可能有多处、分属不同零部件的故障；全部找完前保持当前视角。
-  const remaining = markersIn(activePoint).filter((marker) => !marker.found).length
-  if (remaining > 0 && activePoint.isStationPoint) {
-    showToast(`本检查站位还有 ${remaining} 处故障待查，可继续旋转检视`)
-    $('inspect-panel').style.display = 'none'
-    prepareInspectResultTrigger(activePoint)
-  } else {
-    exitInspect()
-  }
+  // 一次填报即完成当前零部件检视；其余未发现故障留给最终成绩单统计。
+  exitInspect()
   maybeFinishTraining()
 }
 
@@ -789,6 +784,16 @@ function exitInspect() {
   // 返回进入检视前的模式（漫游或场景）
   setMode(preInspectMode)
   updateAuthorToolbar(null)
+}
+
+/** 右上角叉号表示本次检视未发现需上报的问题，并完成该检查点。 */
+function closeInspectAsNormal() {
+  if (!activePoint) return
+  if (isAuthoring()) { exitInspect(); return }
+  pendingMarker = null
+  pendingPoint = null
+  $('fault-report-form').style.display = 'none'
+  decideFromInspect('ok')
 }
 
 /** 检视面板内直接记录合格/异常，闭环 8 步状态机（移动端友好） */
@@ -1334,15 +1339,9 @@ function init() {
   })
 
   // 检视面板
-  $('inspect-exit').addEventListener('click', exitInspect)
-  $('inspect-toggle').addEventListener('click', () => setInspectPanelCollapsed(!$('inspect-panel').classList.contains('collapsed')))
+  $('inspect-exit').addEventListener('click', closeInspectAsNormal)
   $('inspect-result-trigger').addEventListener('click', openInspectResultPanel)
   $('fault-report-form').addEventListener('submit', submitFaultReport)
-  $('fault-report-cancel').addEventListener('click', () => {
-    pendingMarker = null
-    pendingPoint = null
-    $('fault-report-form').style.display = 'none'
-  })
   $('session-enter').addEventListener('click', beginSession)
   $('session-mode').addEventListener('change', () => {
     const mode = $('session-mode').value
@@ -1372,13 +1371,11 @@ function init() {
     showToast('已撤销上一处故障')
   })
   $('author-finish').addEventListener('click', finishAuthoring)
-  // 未点击故障标记时只保留“确认未见异常”。
-  $('inspect-ok').addEventListener('click', () => decideFromInspect('ok'))
-  // Esc 退出检视（桌面端）
+  // Esc 与面板叉号含义一致：普通检查记为未见异常，出题模式仅退出当前检视。
   window.addEventListener('keydown', (e) => {
     if (e.key === 'Escape' && scene?.getMode?.() === 'inspect') {
       e.preventDefault()
-      exitInspect()
+      closeInspectAsNormal()
     }
   })
 

@@ -19,6 +19,7 @@ for (const faultType of Object.keys(FAULT_TYPES)) {
   check(`${faultType} 可从题目记录重建`, Boolean(marker?.line && marker?.proxy))
   check(`${faultType} 保留唯一故障编号`, marker?.faultId === `F-${faultType}`)
   check(`${faultType} 拾取代理与可见符号绑定`, marker?.proxy?.userData?.marker === marker?.line)
+  check(`${faultType} 手机点击代理半径不小于22cm`, marker?.proxy?.geometry?.parameters?.radius >= 0.22)
   marker?.line?.geometry?.dispose?.(); marker?.line?.material?.dispose?.()
   marker?.proxy?.geometry?.dispose?.(); marker?.proxy?.material?.dispose?.()
 }

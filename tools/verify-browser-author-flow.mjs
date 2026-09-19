@@ -4,11 +4,13 @@ import os from 'node:os'
 import path from 'node:path'
 
 const url = process.argv[2] || 'http://127.0.0.1:8777/index.html?browser-test=1'
+const variant = process.argv[3] || 'peer'
 const chrome = process.env.CHROME_PATH || 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe'
 const port = 9335
 const profileDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hxd3d-browser-test-'))
 const browser = spawn(chrome, [
   '--headless=new', '--disable-gpu', '--no-sandbox',
+  '--window-size=1056,480',
   `--remote-debugging-port=${port}`,
   `--user-data-dir=${profileDir}`,
   url,
@@ -82,23 +84,36 @@ try {
   const entry = await evaluate(`(() => {
     document.getElementById('session-name').value = '浏览器流程测试'
     document.getElementById('session-id').value = 'TEST-A01'
-    document.getElementById('session-mode').value = 'author'
+    document.getElementById('session-mode').value = '${variant === 'peer' ? 'author' : 'practice'}'
     document.getElementById('session-enter').click()
     return true
   })()`)
-  check('已触发同伴出题登录', entry === true)
+  check(variant === 'peer' ? '已触发同伴出题登录' : '已触发单人检查登录', entry === true)
   await waitFor("document.body.classList.contains('session-running')", '进入训练')
   const state = await evaluate(`(() => ({
     running: document.body.classList.contains('session-running'),
     gate: document.getElementById('session-gate').style.display,
-    toolbar: getComputedStyle(document.getElementById('author-toolbar')).display,
+    toolbar: document.getElementById('author-toolbar') ? getComputedStyle(document.getElementById('author-toolbar')).display : null,
     mode: JSON.parse(localStorage.getItem('hxd3d-peer-scenario-v3') || 'null')?.status,
     title: document.getElementById('title-sub').textContent,
   }))()`)
-  check('同伴出题模式能够进入', state.running && state.gate === 'none')
-  check('出题工具栏已经显示', state.toolbar === 'flex', `display=${state.toolbar}`)
-  check('新题目草稿已建立', state.mode === 'draft', `status=${state.mode}`)
-  check('页面载入当前修复版本', state.title.includes('V1.5.0'), state.title)
+  check(variant === 'peer' ? '同伴出题模式能够进入' : '单人检查模式能够进入', state.running && state.gate === 'none')
+  if (variant === 'peer') {
+    check('出题工具栏已经显示', state.toolbar === 'flex', `display=${state.toolbar}`)
+    check('新题目草稿已建立', state.mode === 'draft', `status=${state.mode}`)
+  } else {
+    check('单人版未混入出题工具栏', state.toolbar === null)
+  }
+  check('页面载入当前修复版本', state.title.includes('V1.6.0'), state.title)
+  const ui = await evaluate(`(() => ({
+    confirmText: document.querySelector('#fault-report-form .fault-submit')?.textContent.trim(),
+    inspectClose: document.getElementById('inspect-exit')?.textContent.trim(),
+    duplicateButtons: ['inspect-toggle','inspect-ok','fault-report-cancel'].filter((id) => document.getElementById(id)),
+    viewport: [innerWidth, innerHeight],
+  }))()`)
+  check('故障填报按钮统一为确定', ui.confirmText === '确定', ui.confirmText)
+  check('部件检视仅保留独立叉号', ui.inspectClose === '×' && ui.duplicateButtons.length === 0)
+  check('手机横屏比例测试视口生效', ui.viewport[0] > ui.viewport[1], ui.viewport.join('×'))
 } catch (error) {
   failed += 1
   console.error(`✗ 浏览器流程检查异常 · ${error.message}`)
