@@ -14,8 +14,8 @@ import {
   INSPECTION_ROUTES as ALL_INSPECTION_ROUTES,
   METHOD_LABELS,
   LEVEL_LABELS,
-} from './inspectionData.js?v=1.7.0'
-import { createInspectionScene } from './sceneController.js?v=1.7.0'
+} from './inspectionData.js?v=1.8.0'
+import { createInspectionScene } from './sceneController.js?v=1.8.0'
 import { FAULT_TYPES } from './partInspection.js'
 import { getRunningGearItemIds, getRunningGearParts } from './parts/runningGearParts.js'
 import { createInspectionFlow } from './inspectionFlow.js'
@@ -33,7 +33,7 @@ import {
   lockPeerScenario,
   markPeerScenarioAnswering,
   finishPeerScenario,
-} from './peerScenario.js?v=1.7.0'
+} from './peerScenario.js?v=1.8.0'
 
 const STORAGE_PREFIX = 'hxd3d-inspection-session-v3'
 const PROFILE_KEY = 'hxd3d-inspection-last-profile-v1'
@@ -1559,6 +1559,38 @@ function init() {
           form: getComputedStyle($('fault-report-form')).display,
           edgeExit: getComputedStyle($('inspect-edge-exit')).display,
           appInspect: $('app').classList.contains('mode-inspect'),
+        }
+      },
+      routeGuides() {
+        return scene.getRouteGuideStats?.() ?? null
+      },
+      seedTwoFaultsOnOnePart() {
+        const point = scene.getInspectionPoints().find((entry) => entry.isPartPoint && !entry.isStationPoint && firstFaultType(entry))
+        const station = scene.getStationPoints().find((entry) => entry.stationParts?.includes(point))
+        if (!point || !station) return null
+        const base = point.surfaceAnchor?.clone?.() ?? point.position.clone()
+        const normal = point.surfaceNormal?.clone?.() ?? base.clone().set(0, 0, point.part?.side === 'right' ? 1 : -1)
+        const tangent = new point.position.constructor(1, 0, 0)
+        let scenario = savePeerScenario(createPeerScenario({ name: '多故障测试', id: 'TEST-MULTI' }))
+        for (let index = 0; index < 2; index += 1) {
+          scenario = upsertScenarioFault(scenario, {
+            faultId: `F-TEST-MULTI-${index + 1}`,
+            pointId: point.id, partId: point.part?.partId ?? '', itemId: point.itemId,
+            stationId: station.id, faultType: firstFaultType(point),
+            anchor: {
+              position: base.clone().addScaledVector(tangent, index * 0.09).toArray(),
+              normal: normal.toArray(), tangent: tangent.toArray(),
+            },
+            glyph: { size: 0.062 },
+          })
+        }
+        peerScenario = scenario
+        scene.configureScenario('author', scenario)
+        return {
+          pointId: point.id,
+          stored: scenario.faults.filter((fault) => fault.pointId === point.id).length,
+          rendered: point.markers.length,
+          faultIds: point.markers.map((marker) => marker.faultId),
         }
       },
       reenterLastStation() {

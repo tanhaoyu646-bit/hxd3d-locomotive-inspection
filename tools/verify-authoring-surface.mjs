@@ -3,7 +3,7 @@ import path from 'node:path'
 import * as THREE from 'three'
 import { GLTFLoader } from '../lib/three/addons/loaders/GLTFLoader.js'
 import { getRunningGearParts } from '../scripts/parts/runningGearParts.js'
-import { createAuthoringBox, selectAuthoringHit, conformMarkerGeometry, configureInspectOrbit } from '../scripts/authoringSurface.js'
+import { createAuthoringBox, selectAuthoringHit, conformMarkerGeometry, configureInspectOrbit, findAuthorMarkerNearPointer } from '../scripts/authoringSurface.js'
 import { createFaultMarkerFromRecord } from '../scripts/partInspection.js'
 
 let passed = 0
@@ -28,6 +28,17 @@ const controls = {}
 configureInspectOrbit(controls, 2)
 check('检视视角开放水平360°旋转', controls.minAzimuthAngle === -Infinity && controls.maxAzimuthAngle === Infinity)
 check('检视旋转中心禁止平移', controls.enablePan === false)
+
+// 1.1) 出题时仅精确点击已有符号才切换类型；附近的新落点必须允许继续加题。
+const pickCamera = new THREE.PerspectiveCamera(60, 2, 0.1, 100)
+pickCamera.position.set(0, 0, 5)
+pickCamera.lookAt(0, 0, 0)
+pickCamera.updateProjectionMatrix()
+pickCamera.updateMatrixWorld(true)
+const markerA = { faultId: 'A', surfacePoint: new THREE.Vector3(0, 0, 0) }
+const pickRect = { left: 0, top: 0, width: 1000, height: 500 }
+check('精确点击已有标记可切换类型', findAuthorMarkerNearPointer([markerA], pickCamera, pickRect, 506, 250, 12) === markerA)
+check('点击同一零部件的其他位置不会被已有大代理吞掉', findAuthorMarkerNearPointer([markerA], pickCamera, pickRect, 530, 250, 12) === null)
 
 // 2) 在真实 GLB 上验证典型走行部从车外能够命中专用出题范围。
 globalThis.self = globalThis

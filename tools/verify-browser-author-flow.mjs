@@ -105,7 +105,7 @@ try {
   } else if (variant === 'single') {
     check('单人版未混入出题工具栏', state.toolbar === null)
   }
-  check('页面载入当前修复版本', state.title.includes(variant === 'single' ? 'V1.6.0' : 'V1.7.0'), state.title)
+  check('页面载入当前修复版本', state.title.includes(variant === 'single' ? 'V1.6.0' : 'V1.8.0'), state.title)
   const ui = await evaluate(`(() => ({
     confirmText: document.querySelector('#fault-report-form .fault-submit')?.textContent.trim(),
     inspectClose: document.getElementById('inspect-exit')?.textContent.trim(),
@@ -117,6 +117,16 @@ try {
   check('部件检视仅保留独立叉号', ui.inspectClose === '×' && ui.duplicateButtons.length === 0)
   check('手机横屏比例测试视口生效', ui.viewport[0] > ui.viewport[1], ui.viewport.join('×'))
   if (variant !== 'single') check('同伴版登录只保留出题和答题', ui.peerModes.join(',') === 'author,peer', ui.peerModes.join(','))
+  if (variant !== 'single') {
+    const guides = await evaluate('window.__inspectionTest.routeGuides()')
+    check('检查路线显示19个顺序编号', guides?.badges === 19 && guides?.orders?.join(',') === Array.from({length:19},(_,i)=>i+1).join(','), JSON.stringify(guides))
+    check('相邻标准站位显示方向箭头', guides?.arrows === 18, `arrows=${guides?.arrows}`)
+  }
+  if (variant === 'peer') {
+    const multi = await evaluate('window.__inspectionTest.seedTwoFaultsOnOnePart()')
+    check('同一零部件不同位置可同时保存并渲染两处故障', multi?.stored === 2 && multi?.rendered === 2 && new Set(multi?.faultIds).size === 2,
+      JSON.stringify(multi))
+  }
   if (variant === 'report') {
     const picked = await evaluate('window.__inspectionTest?.openFirstFaultReport()')
     check('已进入带故障的零部件检视', Boolean(picked?.pointId), picked?.pointId)

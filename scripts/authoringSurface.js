@@ -39,6 +39,27 @@ export function configureInspectOrbit(controls, distance) {
 }
 
 /**
+ * 出题模式只在手指/鼠标真正点到可见符号附近时切换已有故障类型。
+ * 答题用的 22cm 透明代理不能用于出题判断，否则同一零部件附近的新落点
+ * 会被代理球吞掉，表现成“只能设置一个故障”。
+ */
+export function findAuthorMarkerNearPointer(markers, camera, rect, clientX, clientY, thresholdPx = 16) {
+  if (!Array.isArray(markers) || !camera || !rect) return null
+  let best = null
+  for (const marker of markers) {
+    const point = marker?.surfacePoint?.clone?.() ?? marker?.proxy?.position?.clone?.()
+    if (!point) continue
+    point.project(camera)
+    if (point.z < -1 || point.z > 1) continue
+    const x = rect.left + (point.x * 0.5 + 0.5) * rect.width
+    const y = rect.top + (-point.y * 0.5 + 0.5) * rect.height
+    const distance = Math.hypot(clientX - x, clientY - y)
+    if (distance <= thresholdPx && (!best || distance < best.distance)) best = { marker, distance }
+  }
+  return best?.marker ?? null
+}
+
+/**
  * 从整车射线结果中选择当前语义零部件的表面。
  * 候选面必须位于零部件专用出题范围内；若前方另有明显遮挡，则禁止穿透设置。
  */

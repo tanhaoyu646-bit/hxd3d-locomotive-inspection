@@ -18,17 +18,17 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js'
 import { DualPlayerController } from './player/DualPlayerController.js'
 import { createLocomotiveCollisionSystem } from './parts/LocomotiveCollisionSystem.js'
-import { getRunningGearParts, getRunningGearItemIds } from './parts/runningGearParts.js?v=1.7.0'
+import { getRunningGearParts, getRunningGearItemIds } from './parts/runningGearParts.js?v=1.8.0'
 import {
   buildRunningGearStations,
   semanticPointsFor,
   markersForPoint,
   resolveStationSurfaceHit,
-} from './parts/inspectionStations.js?v=1.7.0'
+} from './parts/inspectionStations.js?v=1.8.0'
 import { createPartInteractionFSM } from './parts/partInteractionFSM.js'
 import { buildItemIndex } from './inspectionData.js'
 import { SCENARIO_FAULT_POINT_IDS } from './faultScenario.js'
-import { createAuthoringBox, selectAuthoringHit, conformMarkerGeometry, configureInspectOrbit } from './authoringSurface.js?v=1.7.0'
+import { createAuthoringBox, selectAuthoringHit, conformMarkerGeometry, configureInspectOrbit, findAuthorMarkerNearPointer } from './authoringSurface.js?v=1.8.0'
 import {
   buildInspectionPoints,
   buildPartPoints,
@@ -345,6 +345,7 @@ export function createInspectionScene(container, callbacks = {}) {
   let markerCoreMesh = null
   let markerRingMesh = null
   let markerPickMesh = null
+  let routeGuideGroup = null
   const MARKER_COLORS = {
     normal: new THREE.Color(0x38a8ff),
     near: new THREE.Color(0x7cc8ff),
@@ -402,6 +403,68 @@ export function createInspectionScene(container, callbacks = {}) {
     updateMarkerInstances(0)
   }
 
+  function makeRouteNumberSprite(order) {
+    const canvas = document.createElement('canvas')
+    canvas.width = 128
+    canvas.height = 128
+    const ctx = canvas.getContext('2d')
+    ctx.clearRect(0, 0, 128, 128)
+    ctx.beginPath()
+    ctx.arc(64, 64, 46, 0, Math.PI * 2)
+    ctx.fillStyle = 'rgba(5, 35, 59, 0.90)'
+    ctx.fill()
+    ctx.lineWidth = 7
+    ctx.strokeStyle = 'rgba(56, 168, 255, 0.95)'
+    ctx.stroke()
+    ctx.fillStyle = '#e8f7ff'
+    ctx.font = '700 48px sans-serif'
+    ctx.textAlign = 'center'
+    ctx.textBaseline = 'middle'
+    ctx.fillText(String(order).padStart(2, '0'), 64, 66)
+    const texture = new THREE.CanvasTexture(canvas)
+    texture.colorSpace = THREE.SRGBColorSpace
+    texture.minFilter = THREE.LinearFilter
+    const material = new THREE.SpriteMaterial({ map: texture, transparent: true, depthTest: true, depthWrite: false })
+    const sprite = new THREE.Sprite(material)
+    sprite.scale.set(0.30, 0.30, 0.30)
+    sprite.userData.routeGuide = true
+    return sprite
+  }
+
+  /** 标准站位按现场步法显示序号，并用地面箭头连接下一站。 */
+  function buildRouteGuides() {
+    if (routeGuideGroup) pointGroup.remove(routeGuideGroup)
+    routeGuideGroup = new THREE.Group()
+    routeGuideGroup.name = 'InspectionRouteGuides'
+    const ordered = [...stationPoints].sort((a, b) => a.stationOrder - b.stationOrder)
+    ordered.forEach((station, index) => {
+      const badge = makeRouteNumberSprite(station.stationOrder ?? index + 1)
+      badge.position.copy(station.position).add(new THREE.Vector3(0, 0.42, 0))
+      routeGuideGroup.add(badge)
+      const next = ordered[index + 1]
+      if (!next) return
+      const start = station.position.clone()
+      const end = next.position.clone()
+      const groundY = Math.max(start.y, end.y) + 0.035
+      start.y = groundY
+      end.y = groundY
+      const direction = end.clone().sub(start)
+      const distance = direction.length()
+      if (distance < 0.9) return
+      direction.normalize()
+      const origin = start.clone().addScaledVector(direction, 0.38)
+      const arrow = new THREE.ArrowHelper(direction, origin, Math.max(0.45, distance - 0.76), 0x38a8ff, 0.28, 0.15)
+      for (const material of [arrow.line.material, arrow.cone.material]) {
+        material.transparent = true
+        material.opacity = 0.48
+        material.depthWrite = false
+      }
+      arrow.userData.routeGuide = true
+      routeGuideGroup.add(arrow)
+    })
+    pointGroup.add(routeGuideGroup)
+  }
+
   /** 每帧更新实例矩阵（位置 / 脉动缩放 / 光环朝向相机）与实例颜色 */
   function updateMarkerInstances(wave) {
     if (!markerCoreMesh || !markerRingMesh || !markerPickMesh) return
@@ -443,13 +506,18 @@ export function createInspectionScene(container, callbacks = {}) {
     // 清理旧的
     while (pointGroup.children.length) {
       const c = pointGroup.children.pop()
-      c.traverse?.((o) => { o.geometry?.dispose?.(); o.material?.dispose?.() })
+      c.traverse?.((o) => {
+        o.geometry?.dispose?.()
+        o.material?.map?.dispose?.()
+        o.material?.dispose?.()
+      })
       if (c.isInstancedMesh) c.dispose?.()
     }
     while (markerGroup.children.length) {
       const c = markerGroup.children.pop()
       c.geometry?.dispose?.(); c.material?.dispose?.()
     }
+    routeGuideGroup = null
     // 走行部检查项改由零部件配置驱动（实测几何，不再用手工区域）
     runningGearRoute = routes.find((r) => r.id === 'bogie') ?? null
     const regionPoints = buildInspectionPoints(routes, modelBounds, {
@@ -502,6 +570,7 @@ export function createInspectionScene(container, callbacks = {}) {
 
     // 检查点标记改为两个 InstancedMesh（178 次绘制调用 → 2 次）
     buildMarkerInstances()
+    buildRouteGuides()
     configureScenario(scenarioMode, scenarioData)
     return inspectionPoints
   }
@@ -1173,14 +1242,15 @@ export function createInspectionScene(container, callbacks = {}) {
     pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1
     raycaster.setFromCamera(pointer, camera)
 
-    // 点击已有标记时循环该零部件允许的故障类型，不再重复叠加标记。
+    // 只有真正点中可见符号附近才循环类型。不能复用答题阶段的 22cm 大代理，
+    // 否则同一零部件不同位置的新故障会被已有代理误吞。
     const activeMarkers = markersForPoint(activePoint)
-    const markerHit = raycaster.intersectObjects(activeMarkers.map((marker) => marker.proxy), false)[0]
-    if (markerHit) {
-      const line = markerHit.object.userData.marker
-      const marker = activeMarkers.find((candidate) => candidate.line === line)
-      const owner = semanticPointsFor(activePoint).find((candidate) => candidate.markers?.includes(marker)) ?? activePoint
-      if (marker) callbacks.onAuthorMarkerTap?.(marker, owner, activePoint)
+    const existingMarker = findAuthorMarkerNearPointer(
+      activeMarkers, camera, rect, event.clientX, event.clientY, touch ? 20 : 12,
+    )
+    if (existingMarker) {
+      const owner = semanticPointsFor(activePoint).find((candidate) => candidate.markers?.includes(existingMarker)) ?? activePoint
+      callbacks.onAuthorMarkerTap?.(existingMarker, owner, activePoint)
       return
     }
 
@@ -1477,6 +1547,11 @@ export function createInspectionScene(container, callbacks = {}) {
     getInspectionPoints: () => inspectionPoints,
     getStationPoints: () => stationPoints,
     getInteractionPoints: () => interactionPoints,
+    getRouteGuideStats: () => ({
+      badges: routeGuideGroup?.children?.filter((child) => child.isSprite).length ?? 0,
+      arrows: routeGuideGroup?.children?.filter((child) => child.type === 'ArrowHelper').length ?? 0,
+      orders: stationPoints.map((point) => point.stationOrder),
+    }),
     getMarkersForPoint: (point) => markersForPoint(point),
     getFaultStats: () => {
       const points = inspectionPoints.filter((p) => p.hasScenarioFault)
