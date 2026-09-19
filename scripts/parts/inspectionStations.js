@@ -3,6 +3,17 @@ import * as THREE from 'three'
 const AXLE_TYPES = new Set(['wheelset', 'axlebox', 'primarySpring', 'brakeDisc', 'brakeUnit'])
 const PILOT_TYPES = new Set(['pilot'])
 const UNDERCAR_TYPES = new Set(['undercar'])
+const STATION_SEQUENCE = [
+  'station-pilot-front',
+  'station-axle-1-right', 'station-axle-2-right', 'station-axle-3-right',
+  'station-bogie-front-right', 'station-bogie-rear-right',
+  'station-axle-4-right', 'station-axle-5-right', 'station-axle-6-right',
+  'station-pilot-rear',
+  'station-axle-6-left', 'station-axle-5-left', 'station-axle-4-left',
+  'station-bogie-rear-left', 'station-undercar', 'station-bogie-front-left',
+  'station-axle-3-left', 'station-axle-2-left', 'station-axle-1-left',
+]
+const STATION_ORDER = new Map(STATION_SEQUENCE.map((id, index) => [id, index + 1]))
 
 function averageVector(points, getter) {
   const result = new THREE.Vector3()
@@ -25,21 +36,36 @@ function unionBox(parts, key) {
   return boxes.slice(1).reduce((box, next) => box.union(next.clone()), boxes[0].clone())
 }
 
-function makeStation({ id, label, shortName, parts, preferredTypes }) {
+function stationOutward(parts) {
+  const lead = parts[0]?.part ?? {}
+  if (lead.type === 'pilot') return new THREE.Vector3(lead.bogie === 'front' ? 1 : -1, 0, 0)
+  if (lead.type === 'undercar') return new THREE.Vector3(0, 0, -1)
+  return new THREE.Vector3(0, 0, lead.side === 'right' ? 1 : -1)
+}
+
+function makeStation({ id, label, shortName, parts, preferredTypes, modelBounds }) {
   const lead = representative(parts, preferredTypes)
   const geometryBox = unionBox(parts, 'geometryBox')
   const authoringBox = unionBox(parts, 'authoringBox') ?? geometryBox?.clone?.() ?? null
   const orbitTarget = geometryBox
     ? geometryBox.getCenter(new THREE.Vector3())
     : averageVector(parts, (point) => point.orbitTarget ?? point.position)
+  const outward = stationOutward(parts)
+  const half = geometryBox?.getSize(new THREE.Vector3()).multiplyScalar(0.5) ?? new THREE.Vector3(.5, .5, .5)
+  const extent = Math.abs(outward.x) * half.x + Math.abs(outward.z) * half.z
+  const standPosition = orbitTarget.clone().addScaledVector(outward, extent + (lead?.part?.type === 'undercar' ? 1.0 : 1.35))
+  standPosition.y = (modelBounds?.min?.y ?? 0) + 0.08
   return {
     id,
     itemId: lead?.itemId,
     item: lead?.item,
     route: lead?.route,
     part: lead?.part,
-    position: lead?.position?.clone?.() ?? new THREE.Vector3(),
-    interactionTarget: lead?.interactionTarget?.clone?.() ?? lead?.position?.clone?.() ?? new THREE.Vector3(),
+    // 光点是“人应站的位置”，视线目标则是该站位覆盖零部件的几何中心。
+    position: standPosition,
+    standPosition,
+    interactionTarget: orbitTarget.clone(),
+    lookTarget: orbitTarget.clone(),
     orbitTarget,
     geometryBox,
     authoringBox,
@@ -52,6 +78,10 @@ function makeStation({ id, label, shortName, parts, preferredTypes }) {
     stationParts: parts,
     stationLabel: label,
     stationShortName: shortName,
+    stationOrder: STATION_ORDER.get(id) ?? 999,
+    approachRadius: 1.2,
+    facingThreshold: 0.32,
+    requireCrouch: id === 'station-undercar',
   }
 }
 
@@ -59,7 +89,7 @@ function makeStation({ id, label, shortName, parts, preferredTypes }) {
  * 将细粒度语义零部件归并为现场作业使用的标准观测站位。
  * 站位只负责接近、进入和镜头中心；故障、答案和评分仍记录在具体零部件上。
  */
-export function buildRunningGearStations(partPoints) {
+export function buildRunningGearStations(partPoints, modelBounds = null) {
   const groups = new Map()
   const add = (key, point) => {
     if (!groups.has(key)) groups.set(key, [])
@@ -90,6 +120,7 @@ export function buildRunningGearStations(partPoints) {
         shortName: `${axle}轴${sideLabel}`,
         parts,
         preferredTypes: ['axlebox', 'primarySpring', 'wheelset', 'brakeDisc', 'brakeUnit'],
+        modelBounds,
       }))
       continue
     }
@@ -103,6 +134,7 @@ export function buildRunningGearStations(partPoints) {
         shortName: `${endLabel}转向架${sideLabel}`,
         parts,
         preferredTypes: ['frame', 'secondarySpring', 'damper', 'tractionRod', 'motorGearbox', 'pipeFastener', 'sandBox'],
+        modelBounds,
       }))
       continue
     }
@@ -115,6 +147,7 @@ export function buildRunningGearStations(partPoints) {
         shortName: `${endLabel}排障器`,
         parts,
         preferredTypes: ['pilot'],
+        modelBounds,
       }))
       continue
     }
@@ -124,10 +157,11 @@ export function buildRunningGearStations(partPoints) {
       shortName: '车下通道',
       parts,
       preferredTypes: ['undercar'],
+      modelBounds,
     }))
   }
 
-  return stations.sort((a, b) => a.position.x - b.position.x || a.position.z - b.position.z)
+  return stations.sort((a, b) => a.stationOrder - b.stationOrder)
 }
 
 export function semanticPointsFor(point) {

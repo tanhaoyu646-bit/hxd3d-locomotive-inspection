@@ -33,7 +33,8 @@ const pointFor = (part) => {
 }
 
 const points = buildRunningGearParts().map(pointFor)
-const stations = buildRunningGearStations(points)
+const modelBounds = points.slice(1).reduce((box, point) => box.union(point.geometryBox.clone()), points[0].geometryBox.clone())
+const stations = buildRunningGearStations(points, modelBounds)
 const axleStations = stations.filter((station) => station.id.startsWith('station-axle-'))
 const bogieStations = stations.filter((station) => station.id.startsWith('station-bogie-'))
 const pilotStations = stations.filter((station) => station.id.startsWith('station-pilot-'))
@@ -44,6 +45,11 @@ check('六轴左右共 12 个轴位站', axleStations.length === 12, `实际 ${a
 check('前后转向架左右共 4 个综合站', bogieStations.length === 4, `实际 ${bogieStations.length}`)
 check('两端排障器共 2 个站位', pilotStations.length === 2, `实际 ${pilotStations.length}`)
 check('车下通道 1 个站位', undercarStations.length === 1, `实际 ${undercarStations.length}`)
+check('标准站位按 I端右侧至 II端、再由左侧返回排序',
+  stations[0]?.id === 'station-pilot-front' && stations[9]?.id === 'station-pilot-rear' && stations.at(-1)?.id === 'station-axle-1-left',
+  `${stations[0]?.id} → ${stations[9]?.id} → ${stations.at(-1)?.id}`)
+check('每个光点均表示独立的人体站位', stations.every((station) => station.standPosition?.distanceTo(station.orbitTarget) > .8))
+check('车下通道站位要求下蹲', undercarStations[0]?.requireCrouch === true)
 
 const requiredAxleTypes = ['wheelset', 'axlebox', 'primarySpring', 'brakeDisc', 'brakeUnit']
 for (const station of axleStations) {

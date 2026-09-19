@@ -1,7 +1,7 @@
-// V3 允许同一观测站位、同一语义零部件保存多处独立故障。
-// 使用独立存储键，避免旧版按 pointId 覆盖保存的草稿污染新题目。
-const STORAGE_KEY = 'hxd3d-peer-scenario-v3'
-export const PEER_SCENARIO_VERSION = 3
+// V4 是同伴出题专用题目：新出题永远从空白开始，并保存具体检查站位。
+// 使用新存储键隔离 V3 旧草稿和内置题库，避免历史故障重新出现。
+const STORAGE_KEY = 'hxd3d-peer-scenario-v4'
+export const PEER_SCENARIO_VERSION = 4
 export const PEER_MODEL_VERSION = 'hxd3d-integration-spatial-v1'
 
 function clone(value) {
@@ -30,7 +30,7 @@ export function normalizePeerScenario(raw) {
   if (!Array.isArray(raw.faults)) return null
   return {
     ...clone(raw),
-    status: raw.status === 'locked' ? 'locked' : 'draft',
+    status: ['draft', 'locked', 'answering', 'finished'].includes(raw.status) ? raw.status : 'draft',
     faults: raw.faults.filter((fault) => fault?.faultId && fault?.pointId && fault?.anchor?.position),
   }
 }
@@ -109,5 +109,21 @@ export function lockPeerScenario(scenario) {
   const next = clone(scenario)
   next.status = 'locked'
   next.lockedAt = new Date().toISOString()
+  return savePeerScenario(next)
+}
+
+export function markPeerScenarioAnswering(scenario) {
+  if (!scenario || !['locked', 'answering'].includes(scenario.status)) return null
+  const next = clone(scenario)
+  next.status = 'answering'
+  next.answerStartedAt ||= new Date().toISOString()
+  return savePeerScenario(next)
+}
+
+export function finishPeerScenario(scenario) {
+  if (!scenario || !['locked', 'answering'].includes(scenario.status)) return null
+  const next = clone(scenario)
+  next.status = 'finished'
+  next.finishedAt = new Date().toISOString()
   return savePeerScenario(next)
 }

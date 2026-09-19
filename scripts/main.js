@@ -14,8 +14,8 @@ import {
   INSPECTION_ROUTES as ALL_INSPECTION_ROUTES,
   METHOD_LABELS,
   LEVEL_LABELS,
-} from './inspectionData.js?v=1.6.1'
-import { createInspectionScene } from './sceneController.js?v=1.6.1'
+} from './inspectionData.js?v=1.7.0'
+import { createInspectionScene } from './sceneController.js?v=1.7.0'
 import { FAULT_TYPES } from './partInspection.js'
 import { getRunningGearItemIds, getRunningGearParts } from './parts/runningGearParts.js'
 import { createInspectionFlow } from './inspectionFlow.js'
@@ -31,7 +31,9 @@ import {
   updateScenarioFaultType,
   removeLastScenarioFault,
   lockPeerScenario,
-} from './peerScenario.js?v=1.6.1'
+  markPeerScenarioAnswering,
+  finishPeerScenario,
+} from './peerScenario.js?v=1.7.0'
 
 const STORAGE_PREFIX = 'hxd3d-inspection-session-v3'
 const PROFILE_KEY = 'hxd3d-inspection-last-profile-v1'
@@ -56,7 +58,7 @@ const RUNNING_GEAR_ITEM_IDS = new Set(getRunningGearItemIds())
 let state = {
   sessionId: '',
   operator: '教学演练',
-  profile: { name: '', id: '', group: '', device: '', mode: 'practice' },
+  profile: { name: '', id: '', group: '', device: '', mode: 'author' },
   startTime: '',
   items: {}, // itemId -> { status, note, action, level, time, faultsFound, faultsTotal }
 }
@@ -112,7 +114,7 @@ function resetState() {
   state = {
     sessionId: `JC${Date.now().toString().slice(-8)}`,
     operator: state.operator,
-    profile: state.profile ?? { name: '', id: '', group: '', device: '', mode: 'practice' },
+    profile: state.profile ?? { name: '', id: '', group: '', device: '', mode: 'author' },
     startTime: formatNow(),
     deadlineAt: Date.now() + SESSION_LIMIT_SECONDS * 1000,
     finishedAt: '',
@@ -172,6 +174,7 @@ function finishTraining(reason) {
   if (state.finishedAt) return
   state.finishedAt = formatNow()
   state.finishReason = reason
+  if (state.profile?.mode === 'peer') peerScenario = finishPeerScenario(peerScenario) ?? peerScenario
   saveState()
   if (scene?.getMode?.() === 'inspect') exitInspect()
   renderReport({ final: true })
@@ -464,6 +467,7 @@ function setMode(mode) {
   // 检视面板在普通检查中直接展开；出题模式由专用工具栏接管。
   $('inspect-panel').style.display = 'none'
   $('inspect-result-trigger').style.display = 'none'
+  $('inspect-edge-exit').style.display = 'none'
   if (mode !== 'inspect') $('inspect-panel').classList.remove('collapsed')
 
   // 先切场景状态（roam 时 enable playerController），再处理鼠标锁定
@@ -511,8 +515,16 @@ function prepareInspectResultTrigger(point) {
 
 function showInspectPanel() {
   $('inspect-result-trigger').style.display = 'none'
+  $('inspect-edge-exit').style.display = 'none'
   $('inspect-panel').style.display = 'flex'
+  $('inspect-panel').classList.add('report-only')
   $('inspect-panel').classList.remove('collapsed')
+}
+
+function showInspectEdgeExit() {
+  $('inspect-panel').style.display = 'none'
+  $('inspect-result-trigger').style.display = 'none'
+  $('inspect-edge-exit').style.display = 'grid'
 }
 
 // ───────────────────────── 检视流程 ─────────────────────────
@@ -535,6 +547,7 @@ function onInspectEnter(point) {
     authorFaultType = markersIn(point)?.[0]?.faultType ?? firstFaultType(authorTargetPoint)
     $('inspect-panel').style.display = 'none'
     $('inspect-result-trigger').style.display = 'none'
+    $('inspect-edge-exit').style.display = 'grid'
     updateAuthorToolbar(authorTargetPoint)
     if (point.isRouteEntry) showToast('该点是安全确认入口，不用设置故障')
     return
@@ -559,7 +572,7 @@ function onInspectEnter(point) {
     const st = $('inspect-status')
     st.textContent = '请完成车外安全确认'
     st.className = 'inspect-status'
-    showInspectPanel()
+    showInspectEdgeExit()
     return
   }
   $('inspect-title').textContent = point.isStationPoint
@@ -570,7 +583,8 @@ function onInspectEnter(point) {
   // 故障符号说明暂时保留在 DOM 中，当前训练界面不显示。
   $('inspect-wait').style.display = 'none'
   $('fault-report-form').style.display = 'none'
-  showInspectPanel()
+  // 进入标准站位后先保留完整三维视野；点击故障标记时才展开填报窗口。
+  showInspectEdgeExit()
 }
 
 function updateInspectProgress() {
@@ -593,13 +607,13 @@ function onMarkerPick(marker, point) {
   pendingPoint = point
   const part = point.part
   $('report-locomotive').value ||= 'HXD3D 0004'
-  const practice = state.profile?.mode !== 'assessment'
-  $('report-end').value = practice ? (part?.endLabel ?? (point.position?.x > 4.2 ? 'I端' : 'II端')) : ''
-  $('report-side').value = practice ? (part?.side === 'left' ? '左侧' : part?.side === 'right' ? '右侧' : '') : ''
-  $('report-axle').value = practice && part?.axleNo ? `${part.axleNo}轴` : ''
-  $('report-position').value = practice && ['前位', '中位', '后位'].includes(part?.positionLabel) ? part.positionLabel : ''
-  $('report-part').value = practice ? (part?.shortName ?? point.reportPartName ?? point.item?.name ?? '') : ''
-  $('report-inner-outer').value = practice && (part?.side === 'left' || part?.side === 'right') ? '外侧' : ''
+  // 同伴答题不预填标准答案；学员必须独立完成位置、部件和故障类型判断。
+  $('report-end').value = ''
+  $('report-side').value = ''
+  $('report-axle').value = ''
+  $('report-position').value = ''
+  $('report-part').value = ''
+  $('report-inner-outer').value = ''
   $('report-fault-type').value = ''
   $('fault-report-form').style.display = 'grid'
   openInspectResultPanel()
@@ -643,7 +657,7 @@ function isAuthoring() {
 }
 
 function isPeerAnswering() {
-  return state.profile?.mode === 'peer' && peerScenario?.status === 'locked'
+  return state.profile?.mode === 'peer' && peerScenario?.status === 'answering'
 }
 
 function updateAuthorToolbar(point = authorTargetPoint ?? activePoint) {
@@ -703,21 +717,20 @@ function submitFaultReport(event) {
     faultType, faultLabel: FAULT_TYPES[faultType].label,
   }
   report.accuracy = scoreFaultReport(report, expectedFaultReport(pendingPoint, pendingMarker))
-  // 填报内容无论正误都作为本次作答记录；准确性由成绩单统一评分，不能把学员困在检视界面。
-  scene?.markFound?.(pendingMarker)
-  if (pendingPoint.isPartPoint) {
-    scene?.getPartFSM?.()?.observeMarker(pendingPoint.part.partId, `${pendingPoint.id}:${pendingMarker.faultType}`)
+  // 一次“确定”必须完整结束本次站位检视。先登记答案，再统一退出；
+  // 同一站位若还有其他故障，学员可从漫游状态重新进入继续查找。
+  try {
+    scene?.markFound?.(pendingMarker)
+    recordFaultFound(pendingPoint, report)
+    showFeedback(true, '故障填报已记录', '已退出当前零部件检视，填报准确性将在成绩单中统一评定。')
+    refreshProgress()
+    renderRouteList()
+  } finally {
+    pendingMarker = null
+    pendingPoint = null
+    $('fault-report-form').style.display = 'none'
+    exitInspect()
   }
-  recordFaultFound(pendingPoint, report)
-  showFeedback(true, '故障填报已记录', '已退出当前零部件检视，填报准确性将在成绩单中统一评定。')
-  pendingMarker = null
-  pendingPoint = null
-  $('fault-report-form').style.display = 'none'
-  updateInspectProgress()
-  refreshProgress()
-  renderRouteList()
-  // 一次填报即完成当前零部件检视；其余未发现故障留给最终成绩单统计。
-  exitInspect()
   maybeFinishTraining()
 }
 
@@ -745,7 +758,7 @@ function recordFaultFound(point, report) {
   r.level = '立即处理'
   r.time = formatNow()
   state.items[item.id] = r
-  if (point.isPartPoint && found >= total) {
+  if (point.isPartPoint && !activePoint?.isStationPoint && found >= total) {
     scene?.getPartFSM?.()?.judge(point.part.partId, {
       status: 'ng', note: composeFaultReport(report), faultsFound: found, faultsTotal: total,
     })
@@ -765,7 +778,7 @@ function showFeedback(ok, title, detail) {
 }
 
 function exitInspect() {
-  if (activePoint?.isPartPoint) {
+  if (activePoint?.isPartPoint && !activePoint?.isStationPoint) {
     scene?.getPartFSM?.()?.cancelInspect(activePoint.part.partId)
   }
   activePoint = null
@@ -775,6 +788,7 @@ function exitInspect() {
   $('fault-report-form').style.display = 'none'
   $('inspect-reference').style.display = 'none'
   $('inspect-result-trigger').style.display = 'none'
+  $('inspect-edge-exit').style.display = 'none'
   setContextItem(null)
   $('inspect-panel').style.display = 'none'
   // 返回进入检视前的模式（漫游或场景）
@@ -795,12 +809,6 @@ function closeInspectAsNormal() {
 /** 检视面板内直接记录合格/异常，闭环 8 步状态机（移动端友好） */
 function decideFromInspect(action) {
   if (!activePoint) return
-  const stationMarkers = markersIn(activePoint)
-  const foundMarkers = stationMarkers.filter((m) => m.found).length
-  if (foundMarkers > 0) {
-    showToast('本部件已上报故障，不能再确认未见异常')
-    return
-  }
   // 环节入口点只确认车外安全条件，不能替代受电弓及车顶设备的逐项检查。
   if (activePoint.isRouteEntry) {
     state.roofSafetyConfirmed = action === 'ok'
@@ -839,7 +847,7 @@ function decideFromInspect(action) {
   saveState()
   // 同步 FSM 运行时（走行部零部件）
   const fsm = scene?.getPartFSM?.()
-  if (fsm && activePoint.isPartPoint) fsm.judge(activePoint.part.partId, { status: action })
+  if (fsm && activePoint.isPartPoint && !activePoint.isStationPoint) fsm.judge(activePoint.part.partId, { status: action })
   const judgedLabel = activePoint.stationLabel ?? activePoint.item?.name ?? '当前部件'
   showToast(action === 'ok' ? `已确认合格：${judgedLabel}` : `已登记异常：${judgedLabel}`)
   refreshProgress()
@@ -1168,7 +1176,8 @@ function openSessionGate() {
   $('session-id').value = p.id ?? ''
   $('session-group').value = p.group ?? ''
   $('session-device').value = p.device || $('session-device').value
-  $('session-mode').value = p.mode ?? 'practice'
+  const answerAvailable = ['locked', 'answering'].includes(peerScenario?.status)
+  $('session-mode').value = answerAvailable ? 'peer' : 'author'
   $('session-tip').textContent = window.__sceneReady ? '三维模型已就绪，可以进入训练。' : '正在载入三维模型，请稍候。'
   $('session-enter').disabled = !window.__sceneReady
   $('session-gate').style.display = 'grid'
@@ -1202,7 +1211,7 @@ function beginSession() {
   const id = $('session-id').value.trim()
   if (!name || !id) { $('session-tip').textContent = '请填写学员姓名和工号/学号。'; return }
   const selectedMode = $('session-mode').value
-  if (selectedMode === 'peer' && peerScenario?.status !== 'locked') {
+  if (selectedMode === 'peer' && !['locked', 'answering'].includes(peerScenario?.status)) {
     $('session-tip').textContent = '当前没有已完成的同伴题目，请先选择“同伴出题”。'
     return
   }
@@ -1210,13 +1219,16 @@ function beginSession() {
   state.operator = name
   $('btn-report').textContent = selectedMode === 'author' ? '完成出题' : '提交作业'
   if (selectedMode === 'author') {
-    if (peerScenario?.status !== 'draft') peerScenario = savePeerScenario(createPeerScenario(state.profile))
+    // 每位出题同学进入时都创建一张全新的空白题目，不继承任何预置或旧草稿故障。
+    peerScenario = savePeerScenario(createPeerScenario(state.profile))
     scene?.configureScenario?.('author', peerScenario)
   } else if (selectedMode === 'peer') {
-    peerScenario = loadPeerScenario()
+    peerScenario = markPeerScenarioAnswering(loadPeerScenario())
+    if (!peerScenario) {
+      $('session-tip').textContent = '题目数据无效，请重新完成一次同伴出题。'
+      return
+    }
     scene?.configureScenario?.('peer', peerScenario)
-  } else {
-    scene?.configureScenario?.('default', null)
   }
   // 仍在 click 用户手势栈内请求横屏；iPhone Safari 若拒绝锁定，会保留旋转提示，不阻塞登录。
   document.body.classList.remove('session-entry')
@@ -1237,11 +1249,7 @@ function beginSession() {
   updateAuthorToolbar(null)
   const startMessage = selectedMode === 'author'
     ? '同伴出题已开始：到达检查站位，进入检视后点击零部件外表面。'
-    : selectedMode === 'peer'
-      ? `同伴答题已开始：本题共 ${peerScenario.faults.length} 处假设故障。`
-      : selectedMode === 'assessment'
-        ? '考评模式已开始：填报结果将在成绩单中统一评分。'
-        : '练习模式已开始：可通过故障填报进行学习。'
+    : `同伴答题已开始：本题共 ${peerScenario.faults.length} 处假设故障。`
   showToast(startMessage)
 }
 
@@ -1336,21 +1344,18 @@ function init() {
 
   // 检视面板
   $('inspect-exit').addEventListener('click', closeInspectAsNormal)
+  $('inspect-edge-exit').addEventListener('click', closeInspectAsNormal)
   $('inspect-result-trigger').addEventListener('click', openInspectResultPanel)
   $('fault-report-form').addEventListener('submit', submitFaultReport)
   $('session-enter').addEventListener('click', beginSession)
   $('session-mode').addEventListener('change', () => {
     const mode = $('session-mode').value
     if (mode === 'peer') {
-      $('session-tip').textContent = peerScenario?.status === 'locked'
+      $('session-tip').textContent = ['locked', 'answering'].includes(peerScenario?.status)
         ? `已有同伴题目，共 ${peerScenario.faults.length} 处故障。`
         : '尚无同伴题目，请先选择“同伴出题”。'
     } else if (mode === 'author') {
-      $('session-tip').textContent = peerScenario?.status === 'draft'
-        ? `检测到未完成草稿，已设置 ${peerScenario.faults.length} 处，进入后继续出题。`
-        : '出题同学将在标准检查站位上设置假设性故障。'
-    } else {
-      $('session-tip').textContent = '三维模型已就绪，可以进入训练。'
+      $('session-tip').textContent = '进入后创建全新空白题目；旧题不会带入本次出题。'
     }
   })
   $('author-type').addEventListener('click', () => {
@@ -1451,7 +1456,8 @@ function init() {
       const allowed = allowedFaultTypes(point)
       return allowed.includes(authorFaultType) ? authorFaultType : allowed[0]
     },
-    onAuthorFaultPlaced: (record, point) => {
+    onAuthorFaultPlaced: (record, point, marker, station) => {
+      record.stationId = station?.isStationPoint ? station.id : ''
       peerScenario = upsertScenarioFault(peerScenario, record)
       authorFaultType = record.faultType
       authorTargetPoint = point
@@ -1518,21 +1524,52 @@ function init() {
   // 调试/自动化句柄
   window.__scene = scene
   if (new URLSearchParams(location.search).has('browser-test')) {
+    let lastTestStation = null
     window.__inspectionTest = {
       openFirstFaultReport() {
-        const point = scene.getInspectionPoints().find((entry) =>
-          !entry.isPartPoint && !entry.isRouteEntry && entry.markers?.some((marker) => !marker.found) && entry.item)
-        if (!point || !scene.inspectItem(point.item, point.route)) return null
+        const point = scene.getInspectionPoints().find((entry) => entry.isPartPoint && !entry.isStationPoint && firstFaultType(entry))
+        const station = scene.getStationPoints().find((entry) => entry.stationParts?.includes(point))
+        if (!point || !station) return null
+        lastTestStation = station
+        const normal = point.surfaceNormal?.clone?.() ?? { toArray: () => [0, 0, point.part?.side === 'right' ? 1 : -1] }
+        const position = point.surfaceAnchor?.clone?.() ?? point.position.clone()
+        let seeded = savePeerScenario(createPeerScenario({ name: '浏览器测试出题人', id: 'TEST-AUTHOR' }))
+        seeded = upsertScenarioFault(seeded, {
+          faultId: `F-TEST-${point.id}`,
+          pointId: point.id, partId: point.part?.partId ?? '', itemId: point.itemId,
+          stationId: station.id, faultType: firstFaultType(point),
+          anchor: { position: position.toArray(), normal: normal.toArray(), tangent: [1, 0, 0] },
+          glyph: { size: 0.072 },
+        })
+        peerScenario = markPeerScenarioAnswering(lockPeerScenario(seeded))
+        state.profile.mode = 'peer'
+        scene.configureScenario('peer', peerScenario)
+        if (!scene.enterPointForTest(station)) return null
         const marker = point.markers.find((entry) => !entry.found)
+        if (!marker) return null
+        const panelBeforeMarker = getComputedStyle($('inspect-panel')).display
+        const edgeBeforeMarker = getComputedStyle($('inspect-edge-exit')).display
         onMarkerPick(marker, point)
-        return { pointId: point.id, faultType: marker.faultType }
+        return { pointId: point.id, stationId: station.id, faultType: marker.faultType, panelBeforeMarker, edgeBeforeMarker }
       },
       currentView() {
         return {
           sceneMode: scene.getMode(),
           panel: getComputedStyle($('inspect-panel')).display,
           form: getComputedStyle($('fault-report-form')).display,
+          edgeExit: getComputedStyle($('inspect-edge-exit')).display,
           appInspect: $('app').classList.contains('mode-inspect'),
+        }
+      },
+      reenterLastStation() {
+        if (!lastTestStation) return null
+        const entered = scene.enterPointForTest(lastTestStation)
+        return {
+          entered,
+          stationId: lastTestStation.id,
+          sceneMode: scene.getMode(),
+          panel: getComputedStyle($('inspect-panel')).display,
+          edgeExit: getComputedStyle($('inspect-edge-exit')).display,
         }
       },
     }

@@ -15,6 +15,8 @@ const {
   updateScenarioFaultType,
   removeLastScenarioFault,
   lockPeerScenario,
+  markPeerScenarioAnswering,
+  finishPeerScenario,
 } = await import('../scripts/peerScenario.js')
 
 let passed = 0
@@ -80,6 +82,10 @@ scenario = lockPeerScenario(scenario)
 check('题目可锁定交给答题人', scenario?.status === 'locked')
 const unchanged = removeLastScenarioFault(scenario)
 check('锁定后不能删改答案', unchanged.faults.length === 3)
+scenario = markPeerScenarioAnswering(scenario)
+check('答题开始后进入 answering 状态', scenario?.status === 'answering')
+scenario = finishPeerScenario(scenario)
+check('生成成绩后题目进入 finished 状态', scenario?.status === 'finished')
 
 console.log(`\n同伴出题状态断言通过 ${passed} · 失败 ${failed}`)
 if (failed) process.exit(1)

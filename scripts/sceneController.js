@@ -18,17 +18,17 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js'
 import { DualPlayerController } from './player/DualPlayerController.js'
 import { createLocomotiveCollisionSystem } from './parts/LocomotiveCollisionSystem.js'
-import { getRunningGearParts, getRunningGearItemIds } from './parts/runningGearParts.js?v=1.6.1'
+import { getRunningGearParts, getRunningGearItemIds } from './parts/runningGearParts.js?v=1.7.0'
 import {
   buildRunningGearStations,
   semanticPointsFor,
   markersForPoint,
   resolveStationSurfaceHit,
-} from './parts/inspectionStations.js?v=1.6.1'
+} from './parts/inspectionStations.js?v=1.7.0'
 import { createPartInteractionFSM } from './parts/partInteractionFSM.js'
 import { buildItemIndex } from './inspectionData.js'
 import { SCENARIO_FAULT_POINT_IDS } from './faultScenario.js'
-import { createAuthoringBox, selectAuthoringHit, conformMarkerGeometry, configureInspectOrbit } from './authoringSurface.js?v=1.6.1'
+import { createAuthoringBox, selectAuthoringHit, conformMarkerGeometry, configureInspectOrbit } from './authoringSurface.js?v=1.7.0'
 import {
   buildInspectionPoints,
   buildPartPoints,
@@ -497,7 +497,7 @@ export function createInspectionScene(container, callbacks = {}) {
 
     // 现场作业按“人站到一个标准位置，再围绕该位置检查多个相邻零部件”组织。
     // 语义零部件继续用于故障记录与评分，但不再各自显示一个重复、抢占命中的光点。
-    stationPoints = buildRunningGearStations(partPoints)
+    stationPoints = buildRunningGearStations(partPoints, modelBounds)
     interactionPoints = [...regionPoints, ...stationPoints, ...routeEntryPoints]
 
     // 检查点标记改为两个 InstancedMesh（178 次绘制调用 → 2 次）
@@ -711,6 +711,33 @@ export function createInspectionScene(container, callbacks = {}) {
     return new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion).normalize()
   }
 
+  /** 标准站位是独立入口，不继承某个代表零部件的 FSM 状态。 */
+  function evaluateStationEntry(point, ctx, { skipFacing = false } = {}) {
+    const stand = point.standPosition ?? point.position
+    const dx = stand.x - ctx.position.x
+    const dz = stand.z - ctx.position.z
+    const distance = Math.hypot(dx, dz)
+    const inZone = distance <= (point.approachRadius ?? 1.2)
+    const look = (point.lookTarget ?? point.orbitTarget ?? point.position).clone().sub(ctx.position).setY(0)
+    const facing = look.lengthSq() < 1e-6 ? 1 : ctx.forward.dot(look.normalize())
+    const facingOk = skipFacing || facing >= (point.facingThreshold ?? 0.32)
+    const crouchOk = !point.requireCrouch || Boolean(ctx.crouching)
+    const conditions = [
+      { code: 'inZone', met: inZone, label: '到达标准站位', detail: `请走到“${point.stationShortName}”光点附近` },
+      { code: 'facing', met: facingOk, label: '面向检查对象', detail: '请转向该站位对应的走行部零部件' },
+      { code: 'crouch', met: crouchOk, label: '下蹲观察', detail: '该站位需要先下蹲再交互' },
+    ]
+    const unmet = conditions.filter((condition) => !condition.met)
+    return {
+      canEnter: !unmet.length,
+      conditions,
+      unmet,
+      stage: 'ready',
+      stageMeta: { label: '标准检查站位', hint: unmet[0]?.detail ?? '可以进入检视' },
+      distance,
+    }
+  }
+
   /**
    * HUD 与按键共用同一个目标解析器：按准星指向优先，再按距离排序。
    * 这样端部同一 x/z 上的车钩、风管、玻璃和灯具不会再按数组顺序互相抢占。
@@ -722,10 +749,13 @@ export function createInspectionScene(container, callbacks = {}) {
     let best = null
     for (const point of interactionPoints) {
       const target = point.interactionTarget ?? point.position
-      const dx = target.x - ctx.position.x
-      const dz = target.z - ctx.position.z
+      const distanceTarget = point.isStationPoint ? (point.standPosition ?? point.position) : target
+      const dx = distanceTarget.x - ctx.position.x
+      const dz = distanceTarget.z - ctx.position.z
       const horizontalDistance = Math.hypot(dx, dz)
-      const maxDistance = point.isPartPoint
+      const maxDistance = point.isStationPoint
+        ? (point.approachRadius ?? 1.2) + (hud ? 2.0 : 0.5)
+        : point.isPartPoint
         ? (point.part.approach?.maxDistance ?? 3) + (hud ? 2.0 : 0.65)
         : NEAR_DISTANCE + (hud ? 0.8 : 0)
       if (horizontalDistance > maxDistance) continue
@@ -737,8 +767,10 @@ export function createInspectionScene(container, callbacks = {}) {
       // 准星方向远比距离重要；距离只在近似同向的候选之间消歧。
       // HUD 与实际按键都优先选择“已站到允许站位”的那个零部件，
       // 避免相邻轴箱/弹簧的目标抢占后又提示“请走到车体侧站位”。
-      const inZone = point.isPartPoint && partFSM
-        ? partFSM.evaluate(point, ctx, { skipOcclusion: true }).conditions.some((c) => c.code === 'inZone' && c.met)
+      const inZone = point.isStationPoint
+        ? evaluateStationEntry(point, ctx, { skipFacing: true }).conditions.some((c) => c.code === 'inZone' && c.met)
+        : point.isPartPoint && partFSM
+          ? partFSM.evaluate(point, ctx, { skipOcclusion: true }).conditions.some((c) => c.code === 'inZone' && c.met)
         : false
       const score = aim * 10 - horizontalDistance * 0.12 - spatialDistance * 0.015 + (inZone ? 12 : 0)
       if (!best || score > best.score) {
@@ -808,6 +840,17 @@ export function createInspectionScene(container, callbacks = {}) {
     const selected = resolveInteractionTarget(ctx, { hud: true })
     if (!selected) return null
     const p = selected.point
+    if (p.isStationPoint) {
+      const ev = evaluateStationEntry(p, ctx)
+      const unmet = ev.unmet[0]
+      return {
+        kind: 'station', point: p, distance: selected.distance,
+        name: p.stationLabel, shortName: p.stationShortName,
+        stage: ev.stage, stageLabel: ev.stageMeta.label, stageHint: ev.stageMeta.hint,
+        conditions: ev.conditions, canEnter: ev.canEnter,
+        unmetLabel: unmet ? unmet.label : null,
+      }
+    }
     if (p.isPartPoint) {
       // 每帧 HUD 不做昂贵遮挡射线；真正按键时再完整校验。
       const ev = partFSM.evaluate(p, ctx, { skipOcclusion: true })
@@ -979,6 +1022,17 @@ export function createInspectionScene(container, callbacks = {}) {
       callbacks.onInspectEnter?.(p)
       return
     }
+    if (p.isStationPoint) {
+      const ev = evaluateStationEntry(p, ctx)
+      if (!ev.canEnter) {
+        callbacks.onToast?.(ev.unmet[0]?.detail || '请到达标准站位并面向检查对象')
+        return
+      }
+      setMode('inspect')
+      focusOnPoint(p)
+      callbacks.onInspectEnter?.(p)
+      return
+    }
     if (p.isPartPoint) {
       const ev = partFSM.evaluate(p, ctx)
       if (ev.canEnter) {
@@ -1002,8 +1056,11 @@ export function createInspectionScene(container, callbacks = {}) {
     if (!point || mode !== 'roam' || !playerController) return
     const ctx = getPlayerContext()
     const target = point.interactionTarget ?? point.position
-    const distance = Math.hypot(target.x - ctx.position.x, target.z - ctx.position.z)
-    const maxDistance = point.isPartPoint
+    const distanceTarget = point.isStationPoint ? (point.standPosition ?? point.position) : target
+    const distance = Math.hypot(distanceTarget.x - ctx.position.x, distanceTarget.z - ctx.position.z)
+    const maxDistance = point.isStationPoint
+      ? (point.approachRadius ?? 1.2) + 0.5
+      : point.isPartPoint
       ? (point.part.approach?.maxDistance ?? 3) + 0.65
       : NEAR_DISTANCE + 0.65
     if (distance > maxDistance) {
@@ -1012,6 +1069,18 @@ export function createInspectionScene(container, callbacks = {}) {
     }
     if (point.isRouteEntry && !callbacks.isRouteUnlocked?.(point.routeId)) {
       callbacks.onToast?.('该环节尚未解锁')
+      return
+    }
+    if (point.isStationPoint) {
+      const tappedCtx = { ...ctx, forward: target.clone().sub(ctx.position).setY(0).normalize() }
+      const ev = evaluateStationEntry(point, tappedCtx, { skipFacing: true })
+      if (!ev.canEnter) {
+        callbacks.onToast?.(ev.unmet[0]?.detail || '请满足站位条件后再交互')
+        return
+      }
+      setMode('inspect')
+      focusOnPoint(point)
+      callbacks.onInspectEnter?.(point)
       return
     }
     if (point.isPartPoint) {
@@ -1417,6 +1486,13 @@ export function createInspectionScene(container, callbacks = {}) {
       }
     },
     getActivePoint: () => activePoint,
+    enterPointForTest: (point) => {
+      if (!point) return false
+      setMode('inspect')
+      focusOnPoint(point, { instant: true })
+      callbacks.onInspectEnter?.(point)
+      return true
+    },
     exitInspect: () => setMode('scene'),
     getActiveCenter: () => lastCenter,
     getBounds: () => modelBounds,
