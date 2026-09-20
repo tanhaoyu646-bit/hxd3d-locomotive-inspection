@@ -14,8 +14,8 @@ import {
   INSPECTION_ROUTES as ALL_INSPECTION_ROUTES,
   METHOD_LABELS,
   LEVEL_LABELS,
-} from './inspectionData.js?v=1.8.0'
-import { createInspectionScene } from './sceneController.js?v=1.8.0'
+} from './inspectionData.js?v=1.8.1'
+import { createInspectionScene } from './sceneController.js?v=1.8.1'
 import { FAULT_TYPES } from './partInspection.js'
 import { getRunningGearItemIds, getRunningGearParts } from './parts/runningGearParts.js'
 import { createInspectionFlow } from './inspectionFlow.js'
@@ -33,7 +33,7 @@ import {
   lockPeerScenario,
   markPeerScenarioAnswering,
   finishPeerScenario,
-} from './peerScenario.js?v=1.8.0'
+} from './peerScenario.js?v=1.8.1'
 
 const STORAGE_PREFIX = 'hxd3d-inspection-session-v3'
 const PROFILE_KEY = 'hxd3d-inspection-last-profile-v1'
@@ -1591,6 +1591,44 @@ function init() {
           stored: scenario.faults.filter((fault) => fault.pointId === point.id).length,
           rendered: point.markers.length,
           faultIds: point.markers.map((marker) => marker.faultId),
+        }
+      },
+      async placeTwoEndpointFaultsByPointer() {
+        // 不直接写题目数据：真正进入端部复合站位，再向 Canvas 发送两次点击。
+        // 用于回归用户报告的“排障器能点、风管不能点”真实交互链。
+        const station = scene.getStationPoints().find((entry) => entry.id === 'station-pilot-front')
+        const pilot = station?.stationParts?.find((entry) => entry.part?.type === 'pilot')
+        const hose = station?.stationParts?.find((entry) => entry.id === 'coupler-5')
+        if (!station || !pilot || !hose) return { error: 'endpoint-targets-missing' }
+        scene.enterPointForTest(station)
+        await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))
+        const canvas = scene.renderer.domElement
+        const clickPoint = async (point, pointerId, screenOverride = null) => {
+          const anchor = point.surfaceAnchor?.clone?.()
+            ?? point.authoringBox?.getCenter?.(point.position.clone())
+            ?? point.position.clone()
+          const rect = canvas.getBoundingClientRect()
+          const screen = screenOverride ?? scene.projectToScreen(anchor)
+          const init = {
+            bubbles: true, cancelable: true, pointerId, pointerType: 'touch', isPrimary: true,
+            button: 0, buttons: 1, clientX: rect.left + screen.x, clientY: rect.top + screen.y,
+          }
+          canvas.dispatchEvent(new PointerEvent('pointerdown', init))
+          canvas.dispatchEvent(new PointerEvent('pointerup', { ...init, buttons: 0 }))
+          await new Promise((resolve) => requestAnimationFrame(resolve))
+          return { pointId: point.id, screen, visible: screen.visible }
+        }
+        const first = await clickPoint(pilot, 71)
+        const second = await clickPoint(hose, 72)
+        const stored = peerScenario?.faults?.filter((fault) => [pilot.id, hose.id].includes(fault.pointId)) ?? []
+        return {
+          stationId: station.id,
+          stationTargets: station.stationParts.map((entry) => entry.id),
+          clicks: [first, second],
+          stored: stored.length,
+          pointIds: stored.map((fault) => fault.pointId),
+          faultTypes: stored.map((fault) => fault.faultType),
+          rendered: scene.getMarkersForPoint(station).filter((marker) => [pilot.id, hose.id].includes(marker.line?.userData?.pointId)).length,
         }
       },
       reenterLastStation() {

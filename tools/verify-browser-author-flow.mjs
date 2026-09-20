@@ -105,7 +105,7 @@ try {
   } else if (variant === 'single') {
     check('单人版未混入出题工具栏', state.toolbar === null)
   }
-  check('页面载入当前修复版本', state.title.includes(variant === 'single' ? 'V1.6.0' : 'V1.8.0'), state.title)
+  check('页面载入当前修复版本', state.title.includes(variant === 'single' ? 'V1.6.0' : 'V1.8.1'), state.title)
   const ui = await evaluate(`(() => ({
     confirmText: document.querySelector('#fault-report-form .fault-submit')?.textContent.trim(),
     inspectClose: document.getElementById('inspect-exit')?.textContent.trim(),
@@ -123,9 +123,18 @@ try {
     check('相邻标准站位显示方向箭头', guides?.arrows === 18, `arrows=${guides?.arrows}`)
   }
   if (variant === 'peer') {
-    const multi = await evaluate('window.__inspectionTest.seedTwoFaultsOnOnePart()')
-    check('同一零部件不同位置可同时保存并渲染两处故障', multi?.stored === 2 && multi?.rendered === 2 && new Set(multi?.faultIds).size === 2,
+    const multi = await evaluate('window.__inspectionTest.placeTwoEndpointFaultsByPointer()')
+    const multiPassed = multi?.stored === 2 && multi?.rendered === 2
+        && multi?.pointIds?.includes('coupler-5') && multi?.faultTypes?.includes('leak')
+    check('真实点击同一端部站位的排障器和风管可分别出题',
+      multiPassed,
       JSON.stringify(multi))
+    if (!multiPassed) {
+      const capture = await cdp('Page.captureScreenshot', { format: 'png' })
+      const failureImage = path.join(os.tmpdir(), 'hxd3d-endpoint-authoring-failure.png')
+      fs.writeFileSync(failureImage, Buffer.from(capture.result.data, 'base64'))
+      console.error(`端部点击失败截图：${failureImage}`)
+    }
   }
   if (variant === 'report') {
     const picked = await evaluate('window.__inspectionTest?.openFirstFaultReport()')

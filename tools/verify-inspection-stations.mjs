@@ -34,7 +34,32 @@ const pointFor = (part) => {
 
 const points = buildRunningGearParts().map(pointFor)
 const modelBounds = points.slice(1).reduce((box, point) => box.union(point.geometryBox.clone()), points[0].geometryBox.clone())
-const stations = buildRunningGearStations(points, modelBounds)
+const endpointRegionPoint = (id, exterior, pilotPoint, offsetZ, faultType) => {
+  const center = pilotPoint.geometryBox.getCenter(new THREE.Vector3()).add(new THREE.Vector3(0, 0.2, offsetZ))
+  const half = new THREE.Vector3(0.18, 0.18, 0.18)
+  return {
+    id,
+    itemId: id,
+    item: { id, name: id },
+    route: { id: 'coupler', shortName: '车钩' },
+    fault: { exterior, faults: [{ faultType }] },
+    faults: [{ faultType }],
+    position: center.clone(),
+    interactionTarget: center.clone(),
+    orbitTarget: center.clone(),
+    geometryBox: new THREE.Box3(center.clone().sub(half), center.clone().add(half)),
+    authoringBox: new THREE.Box3(center.clone().sub(half), center.clone().add(half)),
+    markers: [],
+  }
+}
+const frontPilotPoint = points.find((point) => point.part?.type === 'pilot' && point.part?.bogie === 'front')
+const rearPilotPoint = points.find((point) => point.part?.type === 'pilot' && point.part?.bogie === 'rear')
+const endpointRegionPoints = [
+  endpointRegionPoint('coupler-1', 'i-end', frontPilotPoint, 0.35, 'crack'),
+  endpointRegionPoint('coupler-5', 'i-end', frontPilotPoint, -0.35, 'leak'),
+  endpointRegionPoint('rear-hose', 'ii-end', rearPilotPoint, 0.35, 'leak'),
+]
+const stations = buildRunningGearStations(points, modelBounds, endpointRegionPoints)
 const axleStations = stations.filter((station) => station.id.startsWith('station-axle-'))
 const bogieStations = stations.filter((station) => station.id.startsWith('station-bogie-'))
 const pilotStations = stations.filter((station) => station.id.startsWith('station-pilot-'))
@@ -44,6 +69,13 @@ check('标准站位总数为 19', stations.length === 19, `实际 ${stations.len
 check('六轴左右共 12 个轴位站', axleStations.length === 12, `实际 ${axleStations.length}`)
 check('前后转向架左右共 4 个综合站', bogieStations.length === 4, `实际 ${bogieStations.length}`)
 check('两端排障器共 2 个站位', pilotStations.length === 2, `实际 ${pilotStations.length}`)
+const frontEndStation = pilotStations.find((station) => station.id === 'station-pilot-front')
+const rearEndStation = pilotStations.find((station) => station.id === 'station-pilot-rear')
+check('I端复合站位同时包含排障器、车钩和风管',
+  frontEndStation?.stationParts?.some((point) => point.part?.type === 'pilot')
+    && frontEndStation.stationParts.some((point) => point.id === 'coupler-1')
+    && frontEndStation.stationParts.some((point) => point.id === 'coupler-5'))
+check('II端复合站位能纳入对应端部区域件', rearEndStation?.stationParts?.some((point) => point.id === 'rear-hose'))
 check('车下通道 1 个站位', undercarStations.length === 1, `实际 ${undercarStations.length}`)
 check('标准站位按 I端右侧至 II端、再由左侧返回排序',
   stations[0]?.id === 'station-pilot-front' && stations[9]?.id === 'station-pilot-rear' && stations.at(-1)?.id === 'station-axle-1-left',

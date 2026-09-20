@@ -100,11 +100,15 @@ const record = {
   glyph: { size: 0.38 },
 }
 const marker = createFaultMarkerFromRecord(point, record)
+const sharedRaycaster = new THREE.Raycaster()
+sharedRaycaster.near = 0.07
+sharedRaycaster.far = 37
 const vertices = conformMarkerGeometry({
   marker,
   modelRoot: sphere,
   authoringBox: new THREE.Box3(new THREE.Vector3(-1.2, -1.2, -1.2), new THREE.Vector3(1.2, 1.2, 1.2)),
   baseNormal: new THREE.Vector3(0, 0, 1),
+  raycaster: sharedRaycaster,
 })
 const radii = []
 for (let i = 0; i < vertices.length; i += 3) radii.push(new THREE.Vector3(vertices[i], vertices[i + 1], vertices[i + 2]).length())
@@ -112,6 +116,8 @@ const maxError = Math.max(...radii.map((radius) => Math.abs(radius - 1.0025)))
 check('故障图形全部顶点完成曲面投影', vertices.length === marker.line.geometry.getAttribute('position').count * 3)
 check('故障图形没有遗留悬空顶点', marker.conformedVertices === marker.totalVertices, `${marker.conformedVertices}/${marker.totalVertices}`)
 check('曲面贴合误差不超过4mm', maxError <= 0.004, `最大误差 ${(maxError * 1000).toFixed(2)}mm`)
+check('曲面贴合后恢复共享射线器近远裁剪', sharedRaycaster.near === 0.07 && sharedRaycaster.far === 37,
+  `near=${sharedRaycaster.near} far=${sharedRaycaster.far}`)
 
 console.log(`\n出题表面断言通过 ${passed} · 失败 ${failed}`)
 if (failed) process.exit(1)

@@ -103,6 +103,10 @@ export function conformMarkerGeometry({
   const stored = []
   let projected = 0
   const projectionBox = authoringBox.clone().expandByScalar(boundsTolerance)
+  // 场景会复用同一个 Raycaster 处理后续鼠标/触摸点击。
+  // 曲面投影只需要很短的射程，但绝不能把 far=0.32m 泄漏到下一次交互。
+  const previousNear = raycaster.near
+  const previousFar = raycaster.far
 
   for (let i = 0; i < position.count; i += 1) {
     candidate.fromBufferAttribute(position, i)
@@ -142,5 +146,7 @@ export function conformMarkerGeometry({
     marker.proxy?.position?.copy?.(center)
     marker.surfacePoint?.copy?.(center)
   }
+  raycaster.near = previousNear
+  raycaster.far = previousFar
   return stored
 }

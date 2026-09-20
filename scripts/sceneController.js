@@ -18,17 +18,17 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js'
 import { DualPlayerController } from './player/DualPlayerController.js'
 import { createLocomotiveCollisionSystem } from './parts/LocomotiveCollisionSystem.js'
-import { getRunningGearParts, getRunningGearItemIds } from './parts/runningGearParts.js?v=1.8.0'
+import { getRunningGearParts, getRunningGearItemIds } from './parts/runningGearParts.js?v=1.8.1'
 import {
   buildRunningGearStations,
   semanticPointsFor,
   markersForPoint,
   resolveStationSurfaceHit,
-} from './parts/inspectionStations.js?v=1.8.0'
+} from './parts/inspectionStations.js?v=1.8.1'
 import { createPartInteractionFSM } from './parts/partInteractionFSM.js'
 import { buildItemIndex } from './inspectionData.js'
 import { SCENARIO_FAULT_POINT_IDS } from './faultScenario.js'
-import { createAuthoringBox, selectAuthoringHit, conformMarkerGeometry, configureInspectOrbit, findAuthorMarkerNearPointer } from './authoringSurface.js?v=1.8.0'
+import { createAuthoringBox, selectAuthoringHit, conformMarkerGeometry, configureInspectOrbit, findAuthorMarkerNearPointer } from './authoringSurface.js?v=1.8.1'
 import {
   buildInspectionPoints,
   buildPartPoints,
@@ -565,8 +565,12 @@ export function createInspectionScene(container, callbacks = {}) {
 
     // 现场作业按“人站到一个标准位置，再围绕该位置检查多个相邻零部件”组织。
     // 语义零部件继续用于故障记录与评分，但不再各自显示一个重复、抢占命中的光点。
-    stationPoints = buildRunningGearStations(partPoints, modelBounds)
-    interactionPoints = [...regionPoints, ...stationPoints, ...routeEntryPoints]
+    stationPoints = buildRunningGearStations(partPoints, modelBounds, regionPoints)
+    // 被纳入复合站位的区域点不再单独显示光点，避免端部多个入口互相抢占。
+    // 它们仍保留在 inspectionPoints 中，用于故障绑定、填报和评分。
+    const stationMemberIds = new Set(stationPoints.flatMap((station) => station.stationParts.map((point) => point.id)))
+    const standaloneRegionPoints = regionPoints.filter((point) => !stationMemberIds.has(point.id))
+    interactionPoints = [...standaloneRegionPoints, ...stationPoints, ...routeEntryPoints]
 
     // 检查点标记改为两个 InstancedMesh（178 次绘制调用 → 2 次）
     buildMarkerInstances()
@@ -981,7 +985,7 @@ export function createInspectionScene(container, callbacks = {}) {
       else if (point.part.type === 'pilot') outboard.set(point.part.bogie === 'front' ? 1 : -1, 0, 0)
       else outboard.set(0, 0, -1)
       const pitch = point.part.view.pitch ?? 0
-      dist = point.part.view.distance ?? INSPECT_DISTANCE
+      dist = point.inspectDistance ?? point.part.view.distance ?? point.part.view.dist ?? INSPECT_DISTANCE
       offsetDir = outboard.clone()
       offsetDir.y += pitch * 1.4 + 0.35 // 俯仰转化为相机高度偏移
       offsetDir.normalize()
@@ -1204,6 +1208,8 @@ export function createInspectionScene(container, callbacks = {}) {
     const rect = renderer.domElement.getBoundingClientRect()
     pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1
     pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1
+    raycaster.near = 0
+    raycaster.far = Infinity
     raycaster.setFromCamera(pointer, camera)
     const activeMarkers = markersForPoint(activePoint)
     const proxies = activeMarkers.map((m) => m.proxy).filter(Boolean)
@@ -1240,13 +1246,15 @@ export function createInspectionScene(container, callbacks = {}) {
     const rect = renderer.domElement.getBoundingClientRect()
     pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1
     pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1
+    raycaster.near = 0
+    raycaster.far = Infinity
     raycaster.setFromCamera(pointer, camera)
 
     // 只有真正点中可见符号附近才循环类型。不能复用答题阶段的 22cm 大代理，
     // 否则同一零部件不同位置的新故障会被已有代理误吞。
     const activeMarkers = markersForPoint(activePoint)
     const existingMarker = findAuthorMarkerNearPointer(
-      activeMarkers, camera, rect, event.clientX, event.clientY, touch ? 20 : 12,
+      activeMarkers, camera, rect, event.clientX, event.clientY, touch ? 14 : 10,
     )
     if (existingMarker) {
       const owner = semanticPointsFor(activePoint).find((candidate) => candidate.markers?.includes(existingMarker)) ?? activePoint
@@ -1265,7 +1273,7 @@ export function createInspectionScene(container, callbacks = {}) {
       ? selectAuthoringHit(hits, targetPoint.authoringBox ?? targetPoint.geometryBox, 0.085, 0.42)
       : null)
     if (!hit) {
-      callbacks.onToast?.('该位置不属于当前站位的可出题零部件，请点击可见的轮对、轴箱、悬挂或制动部件表面')
+      callbacks.onToast?.('未识别到当前站位内的可出题零部件，请点击可见外表面或旋转视角后重试')
       return
     }
     let normal = hit.face

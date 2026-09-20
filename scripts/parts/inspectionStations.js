@@ -43,9 +43,11 @@ function stationOutward(parts) {
   return new THREE.Vector3(0, 0, lead.side === 'right' ? 1 : -1)
 }
 
-function makeStation({ id, label, shortName, parts, preferredTypes, modelBounds }) {
+function makeStation({ id, label, shortName, parts, preferredTypes, modelBounds, focusParts = parts }) {
   const lead = representative(parts, preferredTypes)
-  const geometryBox = unionBox(parts, 'geometryBox')
+  // 站位可以覆盖多个语义零部件，但初始镜头应聚焦在现场主要检查区，
+  // 不能因为同站位还包含挡风玻璃等高位部件就把旋转中心抬高。
+  const geometryBox = unionBox(focusParts.length ? focusParts : parts, 'geometryBox')
   const authoringBox = unionBox(parts, 'authoringBox') ?? geometryBox?.clone?.() ?? null
   const orbitTarget = geometryBox
     ? geometryBox.getCenter(new THREE.Vector3())
@@ -79,6 +81,7 @@ function makeStation({ id, label, shortName, parts, preferredTypes, modelBounds 
     stationLabel: label,
     stationShortName: shortName,
     stationOrder: STATION_ORDER.get(id) ?? 999,
+    inspectDistance: Math.max(lead?.part?.view?.distance ?? lead?.part?.view?.dist ?? 1.1, 1.1),
     approachRadius: 1.2,
     facingThreshold: 0.32,
     requireCrouch: id === 'station-undercar',
@@ -89,7 +92,7 @@ function makeStation({ id, label, shortName, parts, preferredTypes, modelBounds 
  * 将细粒度语义零部件归并为现场作业使用的标准观测站位。
  * 站位只负责接近、进入和镜头中心；故障、答案和评分仍记录在具体零部件上。
  */
-export function buildRunningGearStations(partPoints, modelBounds = null) {
+export function buildRunningGearStations(partPoints, modelBounds = null, regionPoints = []) {
   const groups = new Map()
   const add = (key, point) => {
     if (!groups.has(key)) groups.set(key, [])
@@ -107,6 +110,15 @@ export function buildRunningGearStations(partPoints, modelBounds = null) {
     } else {
       add(`bogie:${part.bogie}:${part.side}`, point)
     }
+  }
+
+  // 端部不能只把排障器当成可出题对象。车钩、风管、塞门、电气插座、
+  // 挡风玻璃等原有区域点按外部观察方向并入对应端部站位。
+  // 这些点仍保留自己的 pointId/itemId/faults，故障和评分不会混为“排障器”。
+  for (const point of regionPoints) {
+    const exterior = point?.fault?.exterior
+    if (exterior === 'i-end') add('pilot:front', point)
+    else if (exterior === 'ii-end') add('pilot:rear', point)
   }
 
   const stations = []
@@ -141,12 +153,14 @@ export function buildRunningGearStations(partPoints, modelBounds = null) {
     if (key.startsWith('pilot:')) {
       const bogie = key.split(':')[1]
       const endLabel = bogie === 'front' ? 'I端' : 'II端'
+      const focusParts = parts.filter((point) => point.part?.type === 'pilot' || point.route?.id === 'coupler')
       stations.push(makeStation({
         id: `station-pilot-${bogie}`,
-        label: `${endLabel}排障器检查站位`,
-        shortName: `${endLabel}排障器`,
+        label: `${endLabel}端部综合检查站位`,
+        shortName: `${endLabel}端部`,
         parts,
         preferredTypes: ['pilot'],
+        focusParts,
         modelBounds,
       }))
       continue
