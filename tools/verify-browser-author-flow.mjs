@@ -105,11 +105,12 @@ try {
   } else if (variant === 'single') {
     check('单人版未混入出题工具栏', state.toolbar === null)
   }
-  check('页面载入当前修复版本', state.title.includes(variant === 'single' ? 'V1.6.0' : 'V1.8.1'), state.title)
+  check('页面载入当前修复版本', state.title.includes(variant === 'single' ? 'V1.6.0' : 'V1.8.2'), state.title)
   const ui = await evaluate(`(() => ({
     confirmText: document.querySelector('#fault-report-form .fault-submit')?.textContent.trim(),
     inspectClose: document.getElementById('inspect-exit')?.textContent.trim(),
     duplicateButtons: ['inspect-toggle','inspect-ok','fault-report-cancel'].filter((id) => document.getElementById(id)),
+    peerSubmit: getComputedStyle(document.getElementById('vbtn-submit')).display,
     viewport: [innerWidth, innerHeight],
     peerModes: Array.from(document.getElementById('session-mode')?.options ?? []).map((option) => option.value),
   }))()`)
@@ -123,6 +124,7 @@ try {
     check('相邻标准站位显示方向箭头', guides?.arrows === 18, `arrows=${guides?.arrows}`)
   }
   if (variant === 'peer') {
+    check('同伴出题模式不显示答题提交按钮', ui.peerSubmit === 'none', `display=${ui.peerSubmit}`)
     const multi = await evaluate('window.__inspectionTest.placeTwoEndpointFaultsByPointer()')
     const multiPassed = multi?.stored === 2 && multi?.rendered === 2
         && multi?.pointIds?.includes('coupler-5') && multi?.faultTypes?.includes('leak')
@@ -174,6 +176,32 @@ try {
     const reentered = await evaluate('window.__inspectionTest.reenterLastStation()')
     check('同一标准站位填报后仍可重新进入', reentered?.entered && reentered.sceneMode === 'inspect' && reentered.panel === 'none' && reentered.edgeExit !== 'none',
       JSON.stringify(reentered))
+    await evaluate("document.getElementById('inspect-edge-exit').click()")
+    await wait(150)
+    const submitLayout = await evaluate(`(() => {
+      const submit = document.getElementById('vbtn-submit')
+      const run = document.getElementById('vbtn-run')
+      const a = submit.getBoundingClientRect(), b = run.getBoundingClientRect()
+      return { display:getComputedStyle(submit).display, submit:{top:a.top,bottom:a.bottom}, run:{top:b.top,bottom:b.bottom} }
+    })()`)
+    check('同伴答题显示提交按钮且位于加速按钮上方', submitLayout.display !== 'none' && submitLayout.submit.bottom > 0
+      && submitLayout.run.bottom > 0 && submitLayout.submit.bottom <= submitLayout.run.top,
+      JSON.stringify(submitLayout))
+    const finalReport = await evaluate(`(() => {
+      document.getElementById('vbtn-submit').click()
+      const stats = Array.from(document.querySelectorAll('.report-stat')).map((entry) => ({
+        label: entry.querySelector('small')?.textContent.trim(), value: entry.querySelector('b')?.textContent.trim(),
+      }))
+      return {
+        report: getComputedStyle(document.getElementById('report-mask')).display,
+        submit: getComputedStyle(document.getElementById('vbtn-submit')).display,
+        status: JSON.parse(localStorage.getItem('hxd3d-peer-scenario-v4') || 'null')?.status,
+        score: stats.find((entry) => entry.label === '综合得分')?.value,
+        found: stats.find((entry) => entry.label === '故障标记检出')?.value,
+      }
+    })()`)
+    check('点击提交后锁定答题并显示故障比对成绩单', finalReport.report === 'grid' && finalReport.submit === 'none'
+      && finalReport.status === 'finished' && finalReport.score !== undefined && finalReport.found?.includes('/'), JSON.stringify(finalReport))
   }
 } catch (error) {
   failed += 1

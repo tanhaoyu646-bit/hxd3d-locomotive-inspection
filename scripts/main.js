@@ -6,7 +6,7 @@
  *   roam    漫游：人视角走动（碰撞/跳跃/下蹲），靠近检查点按 E 交互
  *   inspect 检视：相机聚焦放大检查点，旋转视角找故障标记 → 填报故障活件
  *
- * 移动端：固定方向摇杆 + 独立按键（交互/加速/跳跃/下蹲）
+ * 移动端：固定方向摇杆 + 独立按键（交互/提交/加速/跳跃/下蹲）
  * 原孪生平台模型：只读不改不裁剪，检查内容以"检查点 + 故障标记"叠加
  */
 import {
@@ -14,8 +14,8 @@ import {
   INSPECTION_ROUTES as ALL_INSPECTION_ROUTES,
   METHOD_LABELS,
   LEVEL_LABELS,
-} from './inspectionData.js?v=1.8.1'
-import { createInspectionScene } from './sceneController.js?v=1.8.1'
+} from './inspectionData.js?v=1.8.2'
+import { createInspectionScene } from './sceneController.js?v=1.8.2'
 import { FAULT_TYPES } from './partInspection.js'
 import { getRunningGearItemIds, getRunningGearParts } from './parts/runningGearParts.js'
 import { createInspectionFlow } from './inspectionFlow.js'
@@ -33,7 +33,7 @@ import {
   lockPeerScenario,
   markPeerScenarioAnswering,
   finishPeerScenario,
-} from './peerScenario.js?v=1.8.1'
+} from './peerScenario.js?v=1.8.2'
 
 const STORAGE_PREFIX = 'hxd3d-inspection-session-v3'
 const PROFILE_KEY = 'hxd3d-inspection-last-profile-v1'
@@ -176,13 +176,21 @@ function finishTraining(reason) {
   state.finishReason = reason
   if (state.profile?.mode === 'peer') peerScenario = finishPeerScenario(peerScenario) ?? peerScenario
   saveState()
+  updatePeerSubmitButton()
   if (scene?.getMode?.() === 'inspect') exitInspect()
   renderReport({ final: true })
 }
 
 function maybeFinishTraining() {
   const g = globalStats()
-  if (g.done === g.total && !state.finishedAt) finishTraining('全部检查项目已完成')
+  if (g.done !== g.total || state.finishedAt) return
+  // 同伴答题由学生主动点击“提交”后统一与出题故障比对，避免最后一个
+  // 零部件确认时突然弹出成绩单；倒计时到期仍由计时器自动结算。
+  if (state.profile?.mode === 'peer') {
+    showToast('全部检查项目已完成，请点击右侧“提交”结算成绩')
+    return
+  }
+  finishTraining('全部检查项目已完成')
 }
 
 // ───────────────────────── 渲染：左侧流程 ─────────────────────────
@@ -476,7 +484,7 @@ function setMode(mode) {
   if (mode === 'roam') {
     const isTouch = scene?.isTouch() ?? false
     $('roam-hint-detail').textContent = isTouch
-      ? '左摇杆移动 · 右半屏拖拽转视角 · 交互/加速/跳跃/下蹲'
+      ? `左摇杆移动 · 右半屏拖拽转视角 · ${state.profile?.mode === 'peer' ? '交互/提交/加速/跳跃/下蹲' : '交互/加速/跳跃/下蹲'}`
       : 'WASD 移动 · 空格跳跃 · Shift 奔跑 · C 下蹲 · E 交互 · Esc 退出漫游'
     $('touch-controls').style.display = isTouch ? 'block' : 'none'
     if (!roamHintShown) {
@@ -658,6 +666,23 @@ function isAuthoring() {
 
 function isPeerAnswering() {
   return state.profile?.mode === 'peer' && peerScenario?.status === 'answering'
+}
+
+function updatePeerSubmitButton() {
+  const button = $('vbtn-submit')
+  const group = button?.closest('.virtual-buttons')
+  if (!button || !group) return
+  const visible = document.body.classList.contains('session-running')
+    && state.profile?.mode === 'peer'
+    && peerScenario?.status === 'answering'
+    && !state.finishedAt
+  button.style.display = visible ? 'block' : 'none'
+  group.classList.toggle('peer-submit-visible', visible)
+}
+
+function submitPeerAnswers() {
+  if (!isPeerAnswering() || state.finishedAt) return
+  finishTraining('答题同学主动提交')
 }
 
 function updateAuthorToolbar(point = authorTargetPoint ?? activePoint) {
@@ -1181,6 +1206,7 @@ function openSessionGate() {
   $('session-tip').textContent = window.__sceneReady ? '三维模型已就绪，可以进入训练。' : '正在载入三维模型，请稍候。'
   $('session-enter').disabled = !window.__sceneReady
   $('session-gate').style.display = 'grid'
+  updatePeerSubmitButton()
   updateAuthorToolbar(null)
 }
 
@@ -1245,6 +1271,7 @@ function beginSession() {
   currentRouteIndex = 0
   scene?.resetMarkers?.()
   $('session-gate').style.display = 'none'
+  updatePeerSubmitButton()
   updateSessionTimer(); renderRouteList(); renderRouteDetail(); refreshProgress()
   updateAuthorToolbar(null)
   const startMessage = selectedMode === 'author'
@@ -1372,6 +1399,7 @@ function init() {
     showToast('已撤销上一处故障')
   })
   $('author-finish').addEventListener('click', finishAuthoring)
+  $('vbtn-submit').addEventListener('click', submitPeerAnswers)
   // Esc 与面板叉号含义一致：普通检查记为未见异常，出题模式仅退出当前检视。
   window.addEventListener('keydown', (e) => {
     if (e.key === 'Escape' && scene?.getMode?.() === 'inspect') {
@@ -1544,6 +1572,7 @@ function init() {
         peerScenario = markPeerScenarioAnswering(lockPeerScenario(seeded))
         state.profile.mode = 'peer'
         scene.configureScenario('peer', peerScenario)
+        updatePeerSubmitButton()
         if (!scene.enterPointForTest(station)) return null
         const marker = point.markers.find((entry) => !entry.found)
         if (!marker) return null

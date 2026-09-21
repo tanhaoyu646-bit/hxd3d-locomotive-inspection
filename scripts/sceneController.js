@@ -18,17 +18,17 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js'
 import { DualPlayerController } from './player/DualPlayerController.js'
 import { createLocomotiveCollisionSystem } from './parts/LocomotiveCollisionSystem.js'
-import { getRunningGearParts, getRunningGearItemIds } from './parts/runningGearParts.js?v=1.8.1'
+import { getRunningGearParts, getRunningGearItemIds } from './parts/runningGearParts.js?v=1.8.2'
 import {
   buildRunningGearStations,
   semanticPointsFor,
   markersForPoint,
   resolveStationSurfaceHit,
-} from './parts/inspectionStations.js?v=1.8.1'
+} from './parts/inspectionStations.js?v=1.8.2'
 import { createPartInteractionFSM } from './parts/partInteractionFSM.js'
 import { buildItemIndex } from './inspectionData.js'
 import { SCENARIO_FAULT_POINT_IDS } from './faultScenario.js'
-import { createAuthoringBox, selectAuthoringHit, conformMarkerGeometry, configureInspectOrbit, findAuthorMarkerNearPointer } from './authoringSurface.js?v=1.8.1'
+import { createAuthoringBox, selectAuthoringHit, conformMarkerGeometry, configureInspectOrbit, findAuthorMarkerNearPointer } from './authoringSurface.js?v=1.8.2'
 import {
   buildInspectionPoints,
   buildPartPoints,

@@ -512,6 +512,17 @@ button:focus-visible { outline: 2px solid #78c9ff; outline-offset: 2px; }
   display: grid; grid-template-columns: repeat(2, 88px); gap: 9px;
   width: 185px;
 }
+.virtual-buttons.peer-submit-visible {
+  grid-template-areas:
+    ". submit"
+    "interact run"
+    "jump crouch";
+}
+.virtual-buttons.peer-submit-visible .vbtn-submit { grid-area: submit; }
+.virtual-buttons.peer-submit-visible .vbtn-interact { grid-area: interact; }
+.virtual-buttons.peer-submit-visible .vbtn-run { grid-area: run; }
+.virtual-buttons.peer-submit-visible .vbtn-jump { grid-area: jump; }
+.virtual-buttons.peer-submit-visible .vbtn-crouch { grid-area: crouch; }
 .vbtn {
   position: relative; height: 64px; border-radius: 14px; cursor: pointer;
   border: 1.5px solid rgba(56, 168, 255, .4); color: #dcefff; font-size: 13px; font-weight: 700;
@@ -537,6 +548,11 @@ button:focus-visible { outline: 2px solid #78c9ff; outline-offset: 2px; }
   box-shadow: 0 0 20px rgba(92, 255, 156, .35), inset 0 0 12px rgba(92, 255, 156, .16);
 }
 .vbtn-interact.ready .vbtn-hint { color: #adffd0; }
+.vbtn-submit {
+  border-color: rgba(92, 255, 156, .72); color: #dcffea;
+  background: linear-gradient(180deg, rgba(24, 125, 82, .9), rgba(7, 61, 42, .94));
+}
+.vbtn-submit .vbtn-hint { color: #a9e8c4; }
 /* 中央“可交互检查点”提示已废止：不论运行时状态如何都不占用三维视野。 */
 #near-hint { display: none !important; }
 
