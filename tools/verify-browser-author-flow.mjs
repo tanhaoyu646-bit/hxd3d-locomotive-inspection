@@ -105,7 +105,7 @@ try {
   } else if (variant === 'single') {
     check('单人版未混入出题工具栏', state.toolbar === null)
   }
-  check('页面载入当前修复版本', state.title.includes(variant === 'single' ? 'V1.6.0' : 'V1.8.2'), state.title)
+  check('页面载入当前修复版本', state.title.includes(variant === 'single' ? 'V1.6.0' : 'V1.8.3'), state.title)
   const ui = await evaluate(`(() => ({
     confirmText: document.querySelector('#fault-report-form .fault-submit')?.textContent.trim(),
     inspectClose: document.getElementById('inspect-exit')?.textContent.trim(),
@@ -139,6 +139,11 @@ try {
     }
   }
   if (variant === 'report') {
+    const endpointSchema = await evaluate('window.__inspectionTest?.getEndpointReportSchema()')
+    const expectedEndpointFields = ['locomotive', 'end', 'partName', 'faultType']
+    check('端部活件仅显示实际适用字段', expectedEndpointFields.every((field) => endpointSchema?.visible?.includes(field))
+      && !['side', 'axle', 'position', 'innerOuter'].some((field) => endpointSchema?.visible?.includes(field)), JSON.stringify(endpointSchema))
+    check('端部风管同义名称获得活件满分', endpointSchema?.aliasScore === 100, `score=${endpointSchema?.aliasScore}`)
     const picked = await evaluate('window.__inspectionTest?.openFirstFaultReport()')
     check('已进入带故障的零部件检视', Boolean(picked?.pointId), picked?.pointId)
     check('未点击故障前填报窗保持隐藏且仅显示独立退出键', picked?.panelBeforeMarker === 'none' && picked?.edgeBeforeMarker !== 'none',
@@ -159,7 +164,10 @@ try {
     const submitted = await evaluate(`(() => {
       document.getElementById('report-end').value ||= 'I端'
       document.getElementById('report-side').value ||= '左侧'
+      document.getElementById('report-axle').value ||= '1轴'
+      document.getElementById('report-position').value ||= '前位'
       document.getElementById('report-part').value ||= '检查部件'
+      document.getElementById('report-inner-outer').value ||= '外侧'
       const faultSelect = document.getElementById('report-fault-type')
       const deliberatelyWrong = Array.from(faultSelect.options).map((option) => option.value)
         .find((value) => value && value !== ${JSON.stringify(picked.faultType)})
@@ -178,6 +186,8 @@ try {
       JSON.stringify(reentered))
     await evaluate("document.getElementById('inspect-edge-exit').click()")
     await wait(150)
+    const preservedStatus = await evaluate('window.__inspectionTest.lastReportedPointStatus()')
+    check('重进站位确认未见异常不会覆盖已上报故障', preservedStatus?.status === 'ng', JSON.stringify(preservedStatus))
     const submitLayout = await evaluate(`(() => {
       const submit = document.getElementById('vbtn-submit')
       const run = document.getElementById('vbtn-run')

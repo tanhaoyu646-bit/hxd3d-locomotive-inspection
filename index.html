@@ -7,8 +7,8 @@
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <title>机车检查作业系统 · 同伴出题版</title>
-  <link rel="manifest" href="manifest.webmanifest?v=1.8.2" />
-  <link rel="stylesheet" href="styles/inspection.css?v=1.8.2" />
+  <link rel="manifest" href="manifest.webmanifest?v=1.8.3" />
+  <link rel="stylesheet" href="styles/inspection.css?v=1.8.3" />
   <script type="importmap">
   {
     "imports": {
@@ -203,16 +203,16 @@
           <div class="fault-form-head">
             <strong>填报故障活件</strong>
           </div>
-          <label><span>机车型号</span><input id="report-locomotive" value="HXD3D 0004" required /></label>
+          <label class="fault-field" data-report-field="locomotive"><span>机车型号</span><input id="report-locomotive" value="HXD3D 0004" required /></label>
           <div class="fault-form-grid">
-            <label><span>哪节车或哪端</span><input id="report-end" placeholder="如 I端、1端、一端" required /></label>
-            <label><span>左侧或右侧</span><select id="report-side" required><option value="">请选择</option><option>左侧</option><option>右侧</option></select></label>
-            <label><span>第几轴</span><input id="report-axle" placeholder="如 1轴、一轴" /></label>
-            <label><span>前后位置</span><select id="report-position"><option value="">不区分</option><option>前位</option><option>中位</option><option>后位</option></select></label>
-            <label><span>部件名称</span><input id="report-part" required /></label>
-            <label><span>里侧或外侧</span><select id="report-inner-outer"><option value="">不区分</option><option>里侧</option><option>外侧</option></select></label>
+            <label class="fault-field" data-report-field="end"><span>哪节车或哪端</span><input id="report-end" placeholder="如 I端、1端、一端" required /></label>
+            <label class="fault-field" data-report-field="side"><span>左侧或右侧</span><select id="report-side" required><option value="">请选择</option><option>左侧</option><option>右侧</option></select></label>
+            <label class="fault-field" data-report-field="axle"><span>第几轴</span><input id="report-axle" placeholder="如 1轴、一轴" /></label>
+            <label class="fault-field" data-report-field="position"><span>前后位置</span><select id="report-position"><option value="">不区分</option><option>前位</option><option>中位</option><option>后位</option></select></label>
+            <label class="fault-field" data-report-field="partName"><span>部件名称</span><input id="report-part" required /></label>
+            <label class="fault-field" data-report-field="innerOuter"><span>里侧或外侧</span><select id="report-inner-outer"><option value="">不区分</option><option>里侧</option><option>外侧</option></select></label>
           </div>
-          <label><span>故障类型</span><select id="report-fault-type" required>
+          <label class="fault-field" data-report-field="faultType"><span>故障类型</span><select id="report-fault-type" required>
             <option value="">请选择故障类型</option>
             <option value="crack">裂纹或焊接处裂损</option>
             <option value="tread-scratch">轮对踏面擦伤</option>
@@ -310,6 +310,6 @@
     </div>
   </div>
 
-  <script type="module" src="scripts/main.js?v=1.8.2"></script>
+  <script type="module" src="scripts/main.js?v=1.8.3"></script>
 </body>
 </html>

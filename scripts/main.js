@@ -14,12 +14,12 @@ import {
   INSPECTION_ROUTES as ALL_INSPECTION_ROUTES,
   METHOD_LABELS,
   LEVEL_LABELS,
-} from './inspectionData.js?v=1.8.2'
-import { createInspectionScene } from './sceneController.js?v=1.8.2'
+} from './inspectionData.js?v=1.8.3'
+import { createInspectionScene } from './sceneController.js?v=1.8.3'
 import { FAULT_TYPES } from './partInspection.js'
 import { getRunningGearItemIds, getRunningGearParts } from './parts/runningGearParts.js'
 import { createInspectionFlow } from './inspectionFlow.js'
-import { computeScore } from './scoring.js'
+import { computeScore } from './scoring.js?v=1.8.3'
 import {
   createPeerScenario,
   loadPeerScenario,
@@ -33,7 +33,7 @@ import {
   lockPeerScenario,
   markPeerScenarioAnswering,
   finishPeerScenario,
-} from './peerScenario.js?v=1.8.2'
+} from './peerScenario.js?v=1.8.3'
 
 const STORAGE_PREFIX = 'hxd3d-inspection-session-v3'
 const PROFILE_KEY = 'hxd3d-inspection-last-profile-v1'
@@ -78,6 +78,36 @@ let roamHintShown = false
 let trainingChromeTimer = null
 let peerScenario = loadPeerScenario()
 let authorFaultType = 'crack'
+let pendingExpectedReport = null
+
+// 活件名称采用“部件语义 + 专业同义名”判断，不用泛化的字符串相似度。
+// 后者会把“车钩”“钩提销”“车钩高度”等不同检查对象错误地判为相同。
+const PART_TYPE_REPORT_ALIASES = Object.freeze({
+  wheelset: ['轮对', '轮对踏面', '踏面', '轮缘'],
+  axlebox: ['轴箱', '轴箱端盖', '轴箱盖'],
+  primarySpring: ['一系悬挂', '一系弹簧', '一系弹性悬挂'],
+  brakeDisc: ['制动盘', '闸盘'],
+  brakeUnit: ['基础制动', '基础制动装置', '制动夹钳'],
+  damper: ['油压减振器', '油压减震器', '减振器', '减震器'],
+  tractionRod: ['横向拉杆', '牵引拉杆'],
+  secondarySpring: ['二系悬挂', '二系弹簧'],
+  motorGearbox: ['牵引电机', '齿轮箱', '牵引电机与齿轮箱'],
+  sandBox: ['撒砂器', '沙箱', '撒砂装置', '侧面沙箱'],
+  pilot: ['排障器', '排障器与脚踏', '脚踏'],
+  undercar: ['车下管路', '风管', '管路与防滑件'],
+})
+const ITEM_REPORT_ALIASES = Object.freeze({
+  'coupler-1': ['车钩钩体与钩舌', '车钩', '钩体', '钩舌'],
+  'coupler-2': ['钩提销与提钩装置', '钩提销', '提钩装置', '钩锁销'],
+  'coupler-3': ['缓冲器与从板座', '缓冲器', '从板座', '钩尾框'],
+  'coupler-4': ['车钩高度测量', '车钩高度', '钩高'],
+  'coupler-5': ['制动软管与折角塞门', '制动软管', '风管', '折角塞门'],
+  'coupler-6': ['电源插座与重联连接器', '电源插座', '重联连接器', '重联插座'],
+  'signal-1': ['前照灯与标志灯', '前照灯', '前灯', '标志灯'],
+  'signal-5': ['前挡风玻璃与密封胶条', '前挡风玻璃', '挡风玻璃', '密封胶条'],
+  'signal-6': ['端部刷箱', '刷箱'],
+  'signal-7': ['和谐标志与车号', '和谐标志', '和谐', '车号'],
+})
 
 // 检查流程显式状态机（skill 约束 1）：阶段推进 + 完成判定
 const flow = createInspectionFlow(INSPECTION_ROUTES, {
@@ -352,7 +382,33 @@ function escapeHtml(t) {
 function applyItemResult(item, action, card) {
   if (action === 'clear') delete state.items[item.id]
   else {
-    state.items[item.id] = { ...(state.items[item.id] ?? {}), status: action, time: formatNow() }
+    const previous = state.items[item.id] ?? {}
+    const points = scorePointsForItem(item.id)
+    if (points.length) {
+      const partRecords = { ...(previous.partRecords ?? {}) }
+      points.forEach((point) => {
+        const before = partRecords[point.id] ?? {}
+        const keepReportedFault = action === 'ok' && (before.status === 'ng' || Number(before.faultsFound ?? 0) > 0)
+        partRecords[point.id] = {
+          ...before,
+          status: keepReportedFault ? 'ng' : action,
+          faultsTotal: point.faultTotal,
+          faultsFound: Number(before.faultsFound ?? 0),
+          time: formatNow(),
+        }
+      })
+      const records = Object.values(partRecords)
+      state.items[item.id] = {
+        ...previous,
+        status: records.some((record) => record.status === 'ng') ? 'ng' : action,
+        partRecords,
+        faultsTotal: records.reduce((sum, record) => sum + Number(record.faultsTotal ?? 0), 0),
+        faultsFound: records.reduce((sum, record) => sum + Number(record.faultsFound ?? 0), 0),
+        time: formatNow(),
+      }
+    } else {
+      state.items[item.id] = { ...previous, status: action, time: formatNow() }
+    }
     if (action === 'ng' && card && !card.classList.contains('open')) {
       card.classList.add('open')
       const t = card.querySelector('.item-toggle')
@@ -422,6 +478,13 @@ function faultTotalForItem(itemId) {
   const points = scene?.getInspectionPoints?.() ?? []
   return points.filter((p) => (p.itemId ?? p.item?.id) === itemId)
     .reduce((sum, p) => sum + (p.markers?.length ?? 0), 0)
+}
+
+function scorePointsForItem(itemId) {
+  const points = scene?.getInspectionPoints?.() ?? []
+  return points
+    .filter((point) => !point.isRouteEntry && (point.itemId ?? point.item?.id) === itemId)
+    .map((point) => ({ id: point.id, faultTotal: point.markers?.length ?? 0 }))
 }
 
 // ───────────────────────── 导航 ─────────────────────────
@@ -613,7 +676,8 @@ function updateInspectProgress() {
 function onMarkerPick(marker, point) {
   pendingMarker = marker
   pendingPoint = point
-  const part = point.part
+  pendingExpectedReport = expectedFaultReport(point, marker)
+  configureFaultReportForm(pendingExpectedReport)
   $('report-locomotive').value ||= 'HXD3D 0004'
   // 同伴答题不预填标准答案；学员必须独立完成位置、部件和故障类型判断。
   $('report-end').value = ''
@@ -644,16 +708,73 @@ function normalizeAxle(value) {
 }
 
 function normalizePart(value) {
-  return String(value || '').replace(/[\s·、，,（）()]/g, '').replace(/一系弹簧/g, '一系悬挂').replace(/油压减震器/g, '油压减振器')
+  return String(value || '')
+    .replace(/^[1-6一二三四五六ⅠⅡⅢⅣⅤⅥ]+轴/g, '')
+    .replace(/[\s·、，,“”"'（）()]/g, '')
+    .replace(/一系弹簧/g, '一系悬挂')
+    .replace(/二系弹簧/g, '二系悬挂')
+    .replace(/油压减震器/g, '油压减振器')
 }
+
+function reportPartName(point) {
+  const p = point.part ?? {}
+  return p.shortName || point.reportPartName || point.item?.fault?.reportPartName || point.item?.name || ''
+}
+
+function reportPartAliases(point, canonical) {
+  const values = [
+    canonical,
+    point.part?.shortName,
+    point.reportPartName,
+    point.item?.fault?.reportPartName,
+    ...(PART_TYPE_REPORT_ALIASES[point.part?.type] ?? []),
+    ...(ITEM_REPORT_ALIASES[point.itemId ?? point.item?.id] ?? []),
+  ]
+  return [...new Set(values.map(normalizePart).filter(Boolean))]
+}
+
+function matchesReportPartName(value, expected) {
+  const actual = normalizePart(value)
+  if (!actual) return false
+  return (expected.partAliases ?? [expected.partName]).some((alias) => {
+    const normalized = normalizePart(alias)
+    return normalized && (actual === normalized
+      || (actual.length >= 2 && normalized.length >= 2
+        && (actual.includes(normalized) || normalized.includes(actual))))
+  })
+}
+
+function setReportFieldVisible(field, visible) {
+  const wrapper = document.querySelector(`[data-report-field="${field}"]`)
+  if (!wrapper) return
+  wrapper.hidden = !visible
+  const control = wrapper.querySelector('input, select')
+  if (control) control.required = Boolean(visible && ['locomotive', 'end', 'side', 'axle', 'position', 'partName', 'innerOuter', 'faultType'].includes(field))
+}
+
+function configureFaultReportForm(expected) {
+  // 端部、车顶等没有轴号/左右/里外语义的部件不显示无关字段，也不强制填写。
+  setReportFieldVisible('locomotive', true)
+  setReportFieldVisible('end', Boolean(expected?.end))
+  setReportFieldVisible('side', Boolean(expected?.side))
+  setReportFieldVisible('axle', Boolean(expected?.axle))
+  setReportFieldVisible('position', Boolean(expected?.position))
+  setReportFieldVisible('partName', true)
+  setReportFieldVisible('innerOuter', Boolean(expected?.innerOuter))
+  setReportFieldVisible('faultType', true)
+}
+
 function expectedFaultReport(point, marker) {
   const p = point.part ?? {}
+  const partName = reportPartName(point)
+  const exterior = point.fault?.exterior
   return {
-    end: p.endLabel ?? (point.position?.x > 4.2 ? 'I端' : 'II端'),
+    end: p.endLabel ?? (exterior === 'i-end' ? 'I端' : exterior === 'ii-end' ? 'II端' : ''),
     side: p.side === 'left' ? '左侧' : p.side === 'right' ? '右侧' : '',
     axle: p.axleNo ? `${p.axleNo}轴` : '',
     position: p.positionLabel ?? '',
-    partName: p.shortName ?? point.reportPartName ?? point.item?.name ?? '',
+    partName,
+    partAliases: reportPartAliases(point, partName),
     innerOuter: p.side === 'left' || p.side === 'right' ? '外侧' : '',
     faultType: marker.faultType,
   }
@@ -713,7 +834,9 @@ function scoreFaultReport(report, expected) {
   let score = 0
   const results = {}
   fields.forEach(([key, weight, norm]) => {
-    const correct = norm(report[key]) === norm(expected[key])
+    const correct = key === 'partName'
+      ? matchesReportPartName(report[key], expected)
+      : norm(report[key]) === norm(expected[key])
     results[key] = correct
     if (correct) score += weight / available * 100
   })
@@ -723,15 +846,18 @@ function scoreFaultReport(report, expected) {
 function submitFaultReport(event) {
   event?.preventDefault?.()
   if (!pendingMarker || !pendingPoint || !activePoint) { showToast('请先点击三维画面中的故障标记'); return }
+  const expected = pendingExpectedReport ?? expectedFaultReport(pendingPoint, pendingMarker)
   const end = normalizeEnd($('report-end').value)
   const side = $('report-side').value
   const axleRaw = $('report-axle').value.trim()
   const axle = axleRaw ? normalizeAxle(axleRaw) : ''
   const partName = $('report-part').value.trim()
   const faultType = $('report-fault-type').value
-  if (!end) { showToast('“哪节车或哪端”请填写 I端/II端、1端/2端或一端/二端'); return }
-  if (!side) { showToast('请选择左侧或右侧（以司机 I 端方向为准）'); return }
-  if (axleRaw && !axle) { showToast('轴号仅支持 1—6 或对应中文、罗马数字'); return }
+  if (expected.end && !end) { showToast('“哪节车或哪端”请填写 I端/II端、1端/2端或一端/二端'); return }
+  if (expected.side && !side) { showToast('请选择左侧或右侧（以司机 I 端方向为准）'); return }
+  if (expected.axle && !axle) { showToast('请填写正确轴号：1—6 或对应中文、罗马数字'); return }
+  if (expected.position && !$('report-position').value) { showToast('请选择前后位置'); return }
+  if (expected.innerOuter && !$('report-inner-outer').value) { showToast('请选择里侧或外侧'); return }
   if (!partName) { showToast('请填写部件名称'); return }
   if (!faultType) { showToast('请选择故障类型'); return }
 
@@ -740,8 +866,10 @@ function submitFaultReport(event) {
     position: $('report-position').value, partName,
     innerOuter: $('report-inner-outer').value,
     faultType, faultLabel: FAULT_TYPES[faultType].label,
+    pointId: pendingPoint.id,
+    faultId: pendingMarker.faultId,
   }
-  report.accuracy = scoreFaultReport(report, expectedFaultReport(pendingPoint, pendingMarker))
+  report.accuracy = scoreFaultReport(report, expected)
   // 一次“确定”必须完整结束本次站位检视。先登记答案，再统一退出；
   // 同一站位若还有其他故障，学员可从漫游状态重新进入继续查找。
   try {
@@ -753,6 +881,7 @@ function submitFaultReport(event) {
   } finally {
     pendingMarker = null
     pendingPoint = null
+    pendingExpectedReport = null
     $('fault-report-form').style.display = 'none'
     exitInspect()
   }
@@ -765,7 +894,13 @@ function composeFaultReport(report) {
 }
 
 function recordFaultFound(point, report) {
-  const item = point.item
+  // 走行部语义点以 itemId 挂接；端部等旧检查点仍可能直接携带 item。
+  // 两种数据形态都必须落到同一检查项记录中，否则标记虽被点亮却没有评分依据。
+  const item = point.item ?? itemIndex.get(point.itemId)?.item
+  if (!item) {
+    showToast('该故障未关联检查项，无法保存填报记录')
+    return
+  }
   const total = point.markers.length
   const found = point.markers.filter((m) => m.found).length
   const r = state.items[item.id] ?? { time: formatNow() }
@@ -777,7 +912,10 @@ function recordFaultFound(point, report) {
   const partRecords = Object.values(r.partRecords)
   r.faultsTotal = partRecords.reduce((sum, rec) => sum + (rec.faultsTotal ?? 0), 0)
   r.faultsFound = partRecords.reduce((sum, rec) => sum + (rec.faultsFound ?? 0), 0)
-  r.faultReports = [...(r.faultReports ?? []), report]
+  const existingIndex = (r.faultReports ?? []).findIndex((entry) => entry.faultId && entry.faultId === report.faultId)
+  r.faultReports = existingIndex >= 0
+    ? (r.faultReports ?? []).map((entry, index) => index === existingIndex ? report : entry)
+    : [...(r.faultReports ?? []), report]
   r.note = r.faultReports.map(composeFaultReport).join('；')
   r.action = '报修临修'
   r.level = '立即处理'
@@ -809,6 +947,7 @@ function exitInspect() {
   activePoint = null
   pendingMarker = null
   pendingPoint = null
+  pendingExpectedReport = null
   authorTargetPoint = null
   $('fault-report-form').style.display = 'none'
   $('inspect-reference').style.display = 'none'
@@ -846,14 +985,20 @@ function decideFromInspect(action) {
   }
   const judgedPoints = semanticPointsIn(activePoint)
   for (const point of judgedPoints) {
-    const item = point.item
+    const item = point.item ?? itemIndex.get(point.itemId)?.item
     if (!item) continue
     const prev = state.items[item.id] ?? {}
+    const previousPartRecord = prev.partRecords?.[point.id]
     const partFound = point.markers?.filter((m) => m.found).length ?? 0
+    const alreadyReported = partFound > 0
+      || previousPartRecord?.status === 'ng'
+      || (prev.faultReports ?? []).some((report) => report.pointId === point.id)
+    // 重进站位后的“未见异常”只完成尚未判定的实体，不能覆盖已经上报的故障。
+    const pointStatus = action === 'ok' && alreadyReported ? 'ng' : action
     const partRecords = {
       ...(prev.partRecords ?? {}),
       [point.id]: {
-        status: action,
+        status: pointStatus,
         faultsTotal: point.markers?.length ?? 0,
         faultsFound: partFound,
         time: formatNow(),
@@ -911,6 +1056,7 @@ function renderReport({ final = false } = {}) {
   const score = computeScore({
     routes: INSPECTION_ROUTES,
     getItem: (id) => state.items[id],
+    getPoints: scorePointsForItem,
     getPointTotal: pointTotalForItem,
     getFaultTotal: faultTotalForItem,
   })
@@ -930,7 +1076,7 @@ function renderReport({ final = false } = {}) {
     <div class="report-section">
       <h4>逐项评分（实体覆盖、故障检出与填报准确度）</h4>
       <table class="report-table"><thead><tr><th>部位</th><th>检查项</th><th>检查覆盖</th><th>故障检出</th><th>填报准确</th><th>得分</th></tr></thead>
-      <tbody>${score.items.map((s) => `<tr><td>${s.route.shortName}</td><td>${s.item.name} <small>(${s.max}分)</small></td><td>${s.checked}/${s.pointTotal}</td><td>${s.faultTotal ? `${s.found}/${s.faultTotal}` : '—'}</td><td>${s.faultTotal ? `${s.reportAccuracy}%` : '—'}</td><td><b>${s.earned}/${s.max}</b></td></tr>`).join('')}</tbody></table>
+      <tbody>${score.items.map((s) => `<tr><td>${s.route.shortName}</td><td>${s.item.name} <small>${s.scored ? `(${s.max}分)` : '（不计分）'}</small></td><td>${s.checked}/${s.pointTotal}</td><td>${s.faultTotal ? `${s.found}/${s.faultTotal}` : '—'}</td><td>${s.faultTotal ? `${s.reportAccuracy}%` : '—'}</td><td><b>${s.scored ? `${s.earned}/${s.max}` : '—'}</b></td></tr>`).join('')}</tbody></table>
       ${score.blocking ? '<p class="report-warning">存在 A 类关键项未完成或严重故障漏检，本次成绩判定为不合格。</p>' : ''}
     </div>
     <div class="report-section">
@@ -1477,6 +1623,7 @@ function init() {
       activePoint = null
       pendingMarker = null
       pendingPoint = null
+      pendingExpectedReport = null
       authorTargetPoint = null
     },
     onMarkerPick: (marker, point) => onMarkerPick(marker, point),
@@ -1553,12 +1700,14 @@ function init() {
   window.__scene = scene
   if (new URLSearchParams(location.search).has('browser-test')) {
     let lastTestStation = null
+    let lastTestPoint = null
     window.__inspectionTest = {
       openFirstFaultReport() {
         const point = scene.getInspectionPoints().find((entry) => entry.isPartPoint && !entry.isStationPoint && firstFaultType(entry))
         const station = scene.getStationPoints().find((entry) => entry.stationParts?.includes(point))
         if (!point || !station) return null
         lastTestStation = station
+        lastTestPoint = point
         const normal = point.surfaceNormal?.clone?.() ?? { toArray: () => [0, 0, point.part?.side === 'right' ? 1 : -1] }
         const position = point.surfaceAnchor?.clone?.() ?? point.position.clone()
         let seeded = savePeerScenario(createPeerScenario({ name: '浏览器测试出题人', id: 'TEST-AUTHOR' }))
@@ -1580,6 +1729,22 @@ function init() {
         const edgeBeforeMarker = getComputedStyle($('inspect-edge-exit')).display
         onMarkerPick(marker, point)
         return { pointId: point.id, stationId: station.id, faultType: marker.faultType, panelBeforeMarker, edgeBeforeMarker }
+      },
+      getEndpointReportSchema() {
+        const point = scene.getInspectionPoints().find((entry) => entry.id === 'coupler-5')
+        const marker = point?.markers?.[0] ?? { faultType: 'leak' }
+        if (!point) return null
+        const expected = expectedFaultReport(point, marker)
+        configureFaultReportForm(expected)
+        const visible = Array.from(document.querySelectorAll('[data-report-field]'))
+          .filter((entry) => !entry.hidden)
+          .map((entry) => entry.dataset.reportField)
+        const aliasScore = scoreFaultReport({
+          locomotive: 'HXD3D 0004', end: expected.end, side: '', axle: '', position: '',
+          partName: '风管', innerOuter: '', faultType: expected.faultType,
+        }, expected).score
+        Array.from(document.querySelectorAll('[data-report-field]')).forEach((entry) => { entry.hidden = false })
+        return { visible, expected, aliasScore }
       },
       currentView() {
         return {
@@ -1669,6 +1834,17 @@ function init() {
           sceneMode: scene.getMode(),
           panel: getComputedStyle($('inspect-panel')).display,
           edgeExit: getComputedStyle($('inspect-edge-exit')).display,
+        }
+      },
+      lastReportedPointStatus() {
+        if (!lastTestPoint) return null
+        const itemId = lastTestPoint.itemId ?? lastTestPoint.item?.id
+        const item = state.items[itemId]
+        return {
+          itemId, pointId: lastTestPoint.id,
+          status: item?.partRecords?.[lastTestPoint.id]?.status ?? null,
+          itemKeys: Object.keys(state.items),
+          partKeys: Object.keys(item?.partRecords ?? {}),
         }
       },
     }
